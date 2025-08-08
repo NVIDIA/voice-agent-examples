@@ -67,20 +67,38 @@
             //ws = new WebSocket('ws://localhost:8100/ws/test1');
             // Generate a UUID for the WebSocket connection
             const uuid = crypto.randomUUID();
-            // Get the host IP address from the current URL
-            const host = window.location.hostname;
-            // Construct the WebSocket URL using the host IP address and UUID
-            const wsUrl = `ws://${host}:8100/ws/${uuid}`
+            // Get the host from the current URL
+            const host = window.location.host; // includes port if present
+            // Use WSS for HTTPS pages, WS for HTTP pages
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            
+            // For HTTPS deployments (like Lepton), use the same host without explicit port
+            // For local development, keep the port specification
+            let wsHost = host;
+            if (window.location.protocol === 'https:' && host.includes('lepton.run')) {
+                wsHost = window.location.hostname; // Remove port for production deployments
+            } else if (window.location.protocol === 'http:' && !host.includes(':')) {
+                wsHost = `${window.location.hostname}:8100`; // Add port for local development
+            }
+            
+            // Construct the WebSocket URL
+            const wsUrl = `${protocol}//${wsHost}/ws/${uuid}`
             // Create a new WebSocket connection
             ws = new WebSocket(wsUrl);
 
-          ws.addEventListener('open', () => console.log('WebSocket connection established.'));
+          ws.addEventListener('open', () => {
+              console.log('WebSocket connection established.');
+              // Connection is ready, we can now safely send audio data
+          });
           ws.addEventListener('message', handleWebSocketMessage);
           ws.addEventListener('close', (event) => {
               console.log("WebSocket connection closed.", event.code, event.reason);
               stopAudio(false);
           });
-          ws.addEventListener('error', (event) => console.error('WebSocket error:', event));
+          ws.addEventListener('error', (event) => {
+              console.error('WebSocket error:', event);
+              stopAudio(false);
+          });
       }
 
       async function handleWebSocketMessage(event) {
@@ -174,30 +192,79 @@
               }
           }).then((stream) => {
               microphoneStream = stream;
-              // 512 is closest thing to 200ms.
-              scriptProcessor = audioContext.createScriptProcessor(512, 1, 1);
-              source = audioContext.createMediaStreamSource(stream);
-              source.connect(scriptProcessor);
-              scriptProcessor.connect(audioContext.destination);
-
-              scriptProcessor.onaudioprocess = (event) => {
-                  if (!ws) {
-                      return;
-                  }
-
-                  const audioData = event.inputBuffer.getChannelData(0);
-                  const pcmS16Array = convertFloat32ToS16PCM(audioData);
-                  const pcmByteArray = new Uint8Array(pcmS16Array.buffer);
-                  const frame = Frame.create({
-                      audio: {
-                          audio: Array.from(pcmByteArray),
+              
+              // Use AudioWorklet instead of deprecated ScriptProcessorNode
+              audioContext.audioWorklet.addModule('audio-processor.js').then(() => {
+                  const audioWorkletNode = new AudioWorkletNode(audioContext, 'audio-processor', {
+                      processorOptions: {
                           sampleRate: SAMPLE_RATE,
                           numChannels: NUM_CHANNELS
                       }
                   });
-                  const encodedFrame = new Uint8Array(Frame.encode(frame).finish());
-                  ws.send(encodedFrame);
-              };
+                  
+                  source = audioContext.createMediaStreamSource(stream);
+                  source.connect(audioWorkletNode);
+                  audioWorkletNode.connect(audioContext.destination);
+                  
+                  // Handle audio data from the worklet
+                  audioWorkletNode.port.onmessage = (event) => {
+                      if (!ws || ws.readyState !== WebSocket.OPEN) {
+                          return;
+                      }
+                      
+                      if (event.data.type === 'audioData') {
+                          const pcmByteArray = new Uint8Array(event.data.data);
+                          const frame = Frame.create({
+                              audio: {
+                                  audio: Array.from(pcmByteArray),
+                                  sampleRate: event.data.sampleRate,
+                                  numChannels: event.data.numChannels
+                              }
+                          });
+                          const encodedFrame = new Uint8Array(Frame.encode(frame).finish());
+                          
+                          try {
+                              ws.send(encodedFrame);
+                          } catch (error) {
+                              console.error('Error sending audio data:', error);
+                          }
+                      }
+                  };
+                  
+                  // Store the worklet node for cleanup
+                  scriptProcessor = audioWorkletNode;
+              }).catch((error) => {
+                  console.error('Failed to load AudioWorklet, falling back to ScriptProcessorNode:', error);
+                  // Fallback to ScriptProcessorNode for older browsers
+                  scriptProcessor = audioContext.createScriptProcessor(512, 1, 1);
+                  source = audioContext.createMediaStreamSource(stream);
+                  source.connect(scriptProcessor);
+                  scriptProcessor.connect(audioContext.destination);
+
+                  scriptProcessor.onaudioprocess = (event) => {
+                      if (!ws || ws.readyState !== WebSocket.OPEN) {
+                          return;
+                      }
+
+                      const audioData = event.inputBuffer.getChannelData(0);
+                      const pcmS16Array = convertFloat32ToS16PCM(audioData);
+                      const pcmByteArray = new Uint8Array(pcmS16Array.buffer);
+                      const frame = Frame.create({
+                          audio: {
+                              audio: Array.from(pcmByteArray),
+                              sampleRate: SAMPLE_RATE,
+                              numChannels: NUM_CHANNELS
+                          }
+                      });
+                      const encodedFrame = new Uint8Array(Frame.encode(frame).finish());
+                      
+                      try {
+                          ws.send(encodedFrame);
+                      } catch (error) {
+                          console.error('Error sending audio data:', error);
+                      }
+                  };
+              });
           }).catch((error) => console.error('Error accessing microphone:', error));
       }
 
@@ -208,7 +275,9 @@
           stopBtn.disabled = true;
 
           if (ws && closeWebsocket) {
-              ws.close();
+              if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+                  ws.close();
+              }
               ws = null;
           }
 

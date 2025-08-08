@@ -56,14 +56,14 @@ async def create_pipeline_task(pipeline_metadata: PipelineMetadata):
     )
 
     llm = NvidiaLLMService(
-        api_key=os.getenv("NVIDIA_API_KEY"),
+        api_key=os.getenv("NVIDIA_API_KEY", "not-needed-for-local-nim"),
         base_url=os.getenv("NVIDIA_LLM_URL", "https://integrate.api.nvidia.com/v1"),
         model=os.getenv("NVIDIA_LLM_MODEL", "meta/llama-3.1-8b-instruct"),
     )
 
     stt = RivaASRService(
         server=os.getenv("RIVA_ASR_URL", "localhost:50051"),
-        api_key=os.getenv("NVIDIA_API_KEY"),
+        api_key=os.getenv("NVIDIA_API_KEY", "not-needed-for-local-nim"),
         language=os.getenv("RIVA_ASR_LANGUAGE", "en-US"),
         sample_rate=16000,
         model=os.getenv("RIVA_ASR_MODEL", "parakeet-1.1b-en-US-asr-streaming-silero-vad-asr-bls-ensemble"),
@@ -71,7 +71,7 @@ async def create_pipeline_task(pipeline_metadata: PipelineMetadata):
 
     tts = RivaTTSService(
         server=os.getenv("RIVA_TTS_URL", "localhost:50051"),
-        api_key=os.getenv("NVIDIA_API_KEY"),
+        api_key=os.getenv("NVIDIA_API_KEY", "not-needed-for-local-nim"),
         voice_id=os.getenv("RIVA_TTS_VOICE_ID", "Magpie-Multilingual.EN-US.Sofia"),
         model=os.getenv("RIVA_TTS_MODEL", "magpie_tts_ensemble-Magpie-Multilingual"),
         language=os.getenv("RIVA_TTS_LANGUAGE", "en-US"),
