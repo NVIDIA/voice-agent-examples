@@ -73,7 +73,10 @@ class UserTranscriptSynchronization(FrameProcessor):
             # TODO: We need filter out more of the duplicated or very similar transcripts with Riva TTS
             if not self._partial_transcript or self._partial_transcript != frame.text:
                 self._partial_transcript = frame.text
-                await self.push_frame(UserUpdatedSpeakingTranscriptFrame(transcript=frame.text), direction)
+                updated_transcript = (
+                    (self._final_transcript.rstrip() + " " + frame.text) if self._final_transcript else frame.text
+                )
+                await self.push_frame(UserUpdatedSpeakingTranscriptFrame(transcript=updated_transcript), direction)
         elif isinstance(frame, TranscriptionFrame):
             self._final_transcript += f"{frame.text} "
         elif isinstance(frame, UserStartedSpeakingFrame):
@@ -143,6 +146,9 @@ class BotTranscriptSynchronization(FrameProcessor):
             self._bot_started_speaking = False
             await self.push_frame(frame, direction)
         elif isinstance(frame, TTSStartedFrame):
+            # TODO: Need to verify for edge cases and tts services apart from NVIDIA Riva
+            if self._bot_transcripts_buffer:
+                self._bot_transcripts_buffer.pop(0)
             # Start buffering the next transcript
             self._bot_transcripts_buffer.append("")
             await self.push_frame(frame, direction)

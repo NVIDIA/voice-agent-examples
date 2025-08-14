@@ -1,0 +1,158 @@
+name: voice-agents-webrtc
+
+services:
+  riva-tts-magpie:
+    image: nvcr.io/nim/nvidia/magpie-tts-multilingual:latest
+    environment:
+      - NGC_API_KEY=${NVIDIA_API_KEY}
+      - NIM_HTTP_API_PORT=9000
+      - NIM_GRPC_API_PORT=50051
+    ports:
+      - "19000:9000"
+      - "50151:50051"
+    healthcheck:
+      test: ["CMD-SHELL", "/bin/grpc_health_probe -addr=:50051 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 150s
+    volumes:
+      - nim_cache:/opt/nim/.cache
+      - riva_data:/data
+    shm_size: 16GB
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['0']
+              capabilities: [gpu]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  riva-asr-parakeet:
+    image: nvcr.io/nim/nvidia/parakeet-1-1b-ctc-en-us:latest
+    environment:
+      - NGC_API_KEY=${NVIDIA_API_KEY}
+      - NIM_HTTP_API_PORT=9001
+      - NIM_GRPC_API_PORT=50052
+      - NIM_TAGS_SELECTOR=mode=str,vad=silero
+    ports:
+      - "19001:9001"
+      - "50152:50052"
+    volumes:
+      - nim_cache:/opt/nim/.cache
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "/bin/grpc_health_probe -addr=:50052 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['1']
+              capabilities: [gpu]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  nvidia-llm:
+    image: nvcr.io/nim/meta/llama-3.1-8b-instruct:latest
+    environment:
+      - NGC_API_KEY=${NVIDIA_API_KEY}
+      - NIM_HTTP_API_PORT=8000
+      - NIM_ENABLE_KV_CACHE_REUSE=1
+    ports:
+      - "18000:8000"
+    volumes:
+      - nim_cache:/opt/nim/.cache
+    shm_size: 16GB
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/v1/health/ready\").read()' || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 300s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ['2','3']
+              capabilities: [gpu]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  python-app:
+    build:
+      context: ../../
+      dockerfile: examples/voice_agent_webrtc/Dockerfile
+    ports:
+      - "7860:7860"
+    volumes:
+      - ./audio_dumps:/app/examples/voice_agent_webrtc/audio_dumps
+    environment:
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+
+      - RIVA_ASR_URL=riva-asr-parakeet:50052
+      - RIVA_TTS_URL=riva-tts-magpie:50051
+      - NVIDIA_LLM_URL=http://nvidia-llm:8000/v1
+
+      - RIVA_ASR_MODEL=parakeet-1.1b-en-US-asr-streaming-silero-vad-asr-bls-ensemble
+      - RIVA_TTS_MODEL=magpie_tts_ensemble-Magpie-Multilingual
+      - NVIDIA_LLM_MODEL=meta/llama-3.1-8b-instruct
+
+      - RIVA_ASR_LANGUAGE=en-US
+      - RIVA_TTS_LANGUAGE=en-US
+      - RIVA_TTS_VOICE_ID=Magpie-Multilingual.EN-US.Sofia
+      - ZERO_SHOT_AUDIO_PROMPT= # set this only if using a zero-shot TTS model with a custom audio prompt
+      - ENABLE_SPECULATIVE_SPEECH=false # set to false to disable speculative speech processing
+
+    depends_on:
+      riva-tts-magpie:
+        condition: service_healthy
+      riva-asr-parakeet:
+        condition: service_healthy
+      nvidia-llm:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:7860/get_prompt || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  ui-app:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    ports:
+      - "9000:8000"
+    depends_on:
+      python-app:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  nim_cache:
+  riva_data:

@@ -4,7 +4,7 @@ services:
   riva-tts-magpie:
     image: nvcr.io/nim/nvidia/magpie-tts-multilingual:latest
     environment:
-      - NGC_API_KEY=${NGC_API_KEY}
+      - NGC_API_KEY=${NVIDIA_API_KEY}
       - NIM_HTTP_API_PORT=9000
       - NIM_GRPC_API_PORT=50051
     ports:
@@ -24,7 +24,7 @@ services:
   riva-asr-parakeet:
     image: nvcr.io/nim/nvidia/parakeet-1-1b-ctc-en-us:latest
     environment:
-      - NGC_API_KEY=${NGC_API_KEY}
+      - NGC_API_KEY=${NVIDIA_API_KEY}
       - NIM_HTTP_API_PORT=9001
       - NIM_GRPC_API_PORT=50052
       - NIM_TAGS_SELECTOR=mode=str,vad=silero
@@ -44,7 +44,7 @@ services:
   nvidia-llm:
     image: nvcr.io/nim/meta/llama-3.1-8b-instruct:latest
     environment:
-      - NGC_API_KEY=${NGC_API_KEY}
+      - NGC_API_KEY=${NVIDIA_API_KEY}
       - NIM_HTTP_API_PORT=8000
     ports:
       - "18000:8000"

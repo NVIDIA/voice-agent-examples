@@ -1,0 +1,27 @@
+[project]
+name = "voice-agent-webrtc"
+version = "0.1.0"
+description = "Voice Agent WebRTC example"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "nvidia-pipecat",
+    "aiortc>=1.13.0",
+    "opencv-python-headless>=4.11.0.86",
+    "torch>=2.7.1",
+]
+
+[tool.uv.sources]
+nvidia-pipecat = { path = "../..", editable = true }
+torch = { index = "pytorch" }
+
+
+[[tool.uv.index]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[dependency-groups]
+dev = [
+    "ruff>=0.11.13",
+]

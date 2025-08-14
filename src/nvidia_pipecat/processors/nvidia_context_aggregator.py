@@ -382,7 +382,9 @@ class NvidiaTTSResponseCacher(FrameProcessor):
             # TODO: This only works if we have a single user in the system.
             # it also does not work if other "events" should trigger the cache release
             # (e.g. new frames by new processors).
-            self._cache.clear()            await self.push_frame(frame, direction)
+            self._cache.clear()
+            # self.user_stopped_speaking = True
+            await self.push_frame(frame, direction)
 
         # Handle user stop speaking - release cached responses
         elif isinstance(frame, UserStoppedSpeakingFrame):
