@@ -7,14 +7,526 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.X.X/dist/protobuf.min.js"></script>
-    <title>ACE Controller WebUI</title>
+    <title>NVIDIA Voice Agent</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+      :root {
+        --primary-color: #76b900;
+        --primary-dark: #5a8a00;
+        --secondary-color: #00d4aa;
+        --background-dark: #0f0f0f;
+        --background-light: #1a1a1a;
+        --surface: #2a2a2a;
+        --surface-light: #3a3a3a;
+        --text-primary: #ffffff;
+        --text-secondary: #b0b0b0;
+        --text-muted: #808080;
+        --error-color: #ff4444;
+        --success-color: #00d4aa;
+        --warning-color: #ffa500;
+        --border-radius: 12px;
+        --shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+        background: linear-gradient(135deg, var(--background-dark) 0%, var(--background-light) 100%);
+        color: var(--text-primary);
+        min-height: 100vh;
+        overflow-x: hidden;
+      }
+
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+
+      header {
+        text-align: center;
+        margin-bottom: 30px;
+        padding: 20px 0;
+      }
+
+      .logo {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 15px;
+        margin-bottom: 10px;
+      }
+
+      .logo i {
+        font-size: 48px;
+        color: var(--primary-color);
+        text-shadow: 0 0 20px rgba(118, 185, 0, 0.3);
+      }
+
+      h1 {
+        font-size: 2.5rem;
+        font-weight: 700;
+        background: linear-gradient(45deg, var(--primary-color), var(--secondary-color));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 5px;
+      }
+
+      .subtitle {
+        font-size: 1.1rem;
+        color: var(--text-secondary);
+        font-weight: 300;
+      }
+
+      .main-content {
+        display: grid;
+        grid-template-columns: 1fr 400px;
+        gap: 30px;
+        flex: 1;
+      }
+
+      .chat-section {
+        display: flex;
+        flex-direction: column;
+        height: 70vh;
+      }
+
+      .conversation-container {
+        background: var(--surface);
+        border-radius: var(--border-radius);
+        box-shadow: var(--shadow);
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        margin-bottom: 20px;
+      }
+
+      .conversation-header {
+        background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+        padding: 15px 20px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .conversation-body {
+        flex: 1;
+        padding: 20px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        background: linear-gradient(to bottom, var(--surface), var(--surface-light));
+      }
+
+      .message {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        animation: messageSlideIn 0.4s ease-out;
+      }
+
+      .message.user {
+        flex-direction: row-reverse;
+      }
+
+      .message-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        flex-shrink: 0;
+      }
+
+      .message.user .message-avatar {
+        background: linear-gradient(45deg, var(--primary-color), var(--primary-dark));
+        color: white;
+      }
+
+      .message.assistant .message-avatar {
+        background: linear-gradient(45deg, var(--secondary-color), #008a73);
+        color: white;
+      }
+
+      .message-content {
+        background: var(--surface-light);
+        padding: 12px 16px;
+        border-radius: var(--border-radius);
+        max-width: 70%;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .message.user .message-content {
+        background: linear-gradient(45deg, var(--primary-color), var(--primary-dark));
+      }
+
+      .message-time {
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        margin-top: 5px;
+      }
+
+      .empty-state {
+        text-align: center;
+        color: var(--text-muted);
+        padding: 40px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 15px;
+      }
+
+      .empty-state i {
+        font-size: 48px;
+        opacity: 0.5;
+      }
+
+      .control-panel {
+        background: var(--surface);
+        border-radius: var(--border-radius);
+        box-shadow: var(--shadow);
+        padding: 30px;
+        height: fit-content;
+        position: sticky;
+        top: 20px;
+      }
+
+      .status-section {
+        margin-bottom: 30px;
+      }
+
+      .status-indicator {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 15px;
+        border-radius: var(--border-radius);
+        background: var(--surface-light);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        margin-bottom: 15px;
+      }
+
+      .status-dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        transition: var(--transition);
+      }
+
+      .status-dot.loading {
+        background: var(--warning-color);
+        animation: pulse 2s infinite;
+      }
+
+      .status-dot.ready {
+        background: var(--success-color);
+        box-shadow: 0 0 10px rgba(0, 212, 170, 0.5);
+      }
+
+      .status-dot.connected {
+        background: var(--primary-color);
+        box-shadow: 0 0 10px rgba(118, 185, 0, 0.5);
+      }
+
+      .status-dot.error {
+        background: var(--error-color);
+        animation: pulse 2s infinite;
+      }
+
+      .audio-controls {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+      }
+
+      .audio-button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 15px 25px;
+        border: none;
+        border-radius: var(--border-radius);
+        font-size: 1.1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: var(--transition);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .audio-button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        transform: none !important;
+      }
+
+      .audio-button:not(:disabled):hover {
+        transform: translateY(-2px);
+        box-shadow: 0 12px 24px rgba(0, 0, 0, 0.4);
+      }
+
+      .start-btn {
+        background: linear-gradient(45deg, var(--primary-color), var(--primary-dark));
+        color: white;
+      }
+
+      .start-btn:not(:disabled):hover {
+        background: linear-gradient(45deg, var(--primary-dark), #4a6b00);
+      }
+
+      .stop-btn {
+        background: linear-gradient(45deg, var(--error-color), #cc3333);
+        color: white;
+      }
+
+      .stop-btn:not(:disabled):hover {
+        background: linear-gradient(45deg, #cc3333, #aa2222);
+      }
+
+      .audio-visualizer {
+        height: 60px;
+        background: var(--surface-light);
+        border-radius: var(--border-radius);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 3px;
+        padding: 10px;
+        margin-top: 15px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .visualizer-bar {
+        width: 4px;
+        background: linear-gradient(to top, var(--primary-color), var(--secondary-color));
+        border-radius: 2px;
+        transition: height 0.1s ease;
+      }
+
+      .settings-section {
+        margin-top: 30px;
+        padding-top: 20px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .settings-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 15px;
+        color: var(--text-secondary);
+      }
+
+      .volume-control {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
+      .volume-slider {
+        flex: 1;
+        height: 6px;
+        border-radius: 3px;
+        background: var(--surface-light);
+        outline: none;
+        appearance: none;
+        cursor: pointer;
+      }
+
+      .volume-slider::-webkit-slider-thumb {
+        appearance: none;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--primary-color);
+        cursor: pointer;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      }
+
+      @keyframes messageSlideIn {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+
+      @keyframes recording {
+        0%, 100% { transform: scale(1); }
+        50% { transform: scale(1.1); }
+      }
+
+      .recording {
+        animation: recording 2s infinite;
+      }
+
+      .typing-indicator {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 16px;
+        color: var(--text-muted);
+        font-style: italic;
+      }
+
+      .typing-dots {
+        display: flex;
+        gap: 4px;
+      }
+
+      .typing-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--text-muted);
+        animation: typingDot 1.4s infinite;
+      }
+
+      .typing-dot:nth-child(2) {
+        animation-delay: 0.2s;
+      }
+
+      .typing-dot:nth-child(3) {
+        animation-delay: 0.4s;
+      }
+
+      @keyframes typingDot {
+        0%, 60%, 100% {
+          opacity: 0.3;
+          transform: scale(1);
+        }
+        30% {
+          opacity: 1;
+          transform: scale(1.2);
+        }
+      }
+
+      @media (max-width: 768px) {
+        .main-content {
+          grid-template-columns: 1fr;
+          gap: 20px;
+        }
+        
+        .container {
+          padding: 15px;
+        }
+        
+        h1 {
+          font-size: 2rem;
+        }
+        
+        .chat-section {
+          height: 50vh;
+        }
+      }
+
+      .connection-info {
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        margin-top: 10px;
+        padding: 10px;
+        background: var(--surface-light);
+        border-radius: 8px;
+        border-left: 3px solid var(--primary-color);
+      }
+    </style>
   </head>
 
   <body>
-    <h1>ACE Controller WebUI</h1>
-    <h3><div id="progressText">Loading, wait...</div></h2>
-    <button id="startAudioBtn">Start Audio</button>
-    <button id="stopAudioBtn">Stop Audio</button>
+    <div class="container">
+      <header>
+        <div class="logo">
+          <i class="fas fa-microphone-alt"></i>
+          <div>
+            <h1>NVIDIA Voice Agent</h1>
+            <p class="subtitle">Powered by AI Speech Technology</p>
+          </div>
+        </div>
+      </header>
+
+      <div class="main-content">
+        <div class="chat-section">
+          <div class="conversation-container">
+            <div class="conversation-header">
+              <i class="fas fa-comments"></i>
+              <span>Conversation</span>
+            </div>
+            <div class="conversation-body" id="conversationBody">
+              <div class="empty-state" id="emptyState">
+                <i class="fas fa-robot"></i>
+                <h3>Ready to chat!</h3>
+                <p>Start a conversation by clicking the "Start Audio" button and speaking into your microphone.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-panel">
+          <div class="status-section">
+            <h3 class="settings-title">System Status</h3>
+            <div class="status-indicator">
+              <div class="status-dot loading" id="statusDot"></div>
+              <div>
+                <div id="statusText">Loading protobuf...</div>
+                <div class="connection-info" id="connectionInfo">Initializing...</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="audio-controls">
+            <button class="audio-button start-btn" id="startAudioBtn" disabled>
+              <i class="fas fa-play"></i>
+              <span>Start Audio</span>
+            </button>
+            <button class="audio-button stop-btn" id="stopAudioBtn" disabled>
+              <i class="fas fa-stop"></i>
+              <span>Stop Audio</span>
+            </button>
+            
+            <div class="audio-visualizer" id="audioVisualizer">
+              <!-- Visualizer bars will be generated by JavaScript -->
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h3 class="settings-title">Audio Settings</h3>
+            <div class="volume-control">
+              <i class="fas fa-volume-down"></i>
+              <input type="range" class="volume-slider" id="volumeSlider" min="0" max="100" value="75">
+              <i class="fas fa-volume-up"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <script>
       const SAMPLE_RATE = 16000;
       const NUM_CHANNELS = 1;
@@ -48,47 +560,185 @@
       // Whether we should be playing audio.
       let isPlaying = false;
 
+      // UI elements
       let startBtn = document.getElementById('startAudioBtn');
       let stopBtn = document.getElementById('stopAudioBtn');
+      let statusDot = document.getElementById('statusDot');
+      let statusText = document.getElementById('statusText');
+      let connectionInfo = document.getElementById('connectionInfo');
+      let conversationBody = document.getElementById('conversationBody');
+      let emptyState = document.getElementById('emptyState');
+      let audioVisualizer = document.getElementById('audioVisualizer');
+      let volumeSlider = document.getElementById('volumeSlider');
+
+      // Create visualizer bars
+      for (let i = 0; i < 20; i++) {
+        const bar = document.createElement('div');
+        bar.className = 'visualizer-bar';
+        bar.style.height = '10px';
+        audioVisualizer.appendChild(bar);
+      }
+
+      const visualizerBars = document.querySelectorAll('.visualizer-bar');
+
+      // Conversation management
+      let conversationHistory = [];
+      let isTyping = false;
+
+      function updateStatus(status, text, info = '') {
+        statusDot.className = `status-dot ${status}`;
+        statusText.textContent = text;
+        connectionInfo.textContent = info;
+      }
+
+      function addMessage(type, content, timestamp = new Date()) {
+        const message = { type, content, timestamp };
+        conversationHistory.push(message);
+        
+        if (emptyState.style.display !== 'none') {
+          emptyState.style.display = 'none';
+        }
+
+        const messageElement = document.createElement('div');
+        messageElement.className = `message ${type}`;
+        
+        const avatar = document.createElement('div');
+        avatar.className = 'message-avatar';
+        avatar.innerHTML = type === 'user' ? '<i class="fas fa-user"></i>' : '<i class="fas fa-robot"></i>';
+        
+        const messageContent = document.createElement('div');
+        messageContent.className = 'message-content';
+        messageContent.innerHTML = `
+          <div>${content}</div>
+          <div class="message-time">${timestamp.toLocaleTimeString()}</div>
+        `;
+        
+        messageElement.appendChild(avatar);
+        messageElement.appendChild(messageContent);
+        
+        conversationBody.appendChild(messageElement);
+        conversationBody.scrollTop = conversationBody.scrollHeight;
+      }
+
+      function showTypingIndicator() {
+        if (isTyping) return;
+        isTyping = true;
+        
+        const typingElement = document.createElement('div');
+        typingElement.className = 'message assistant';
+        typingElement.id = 'typingIndicator';
+        
+        const avatar = document.createElement('div');
+        avatar.className = 'message-avatar';
+        avatar.innerHTML = '<i class="fas fa-robot"></i>';
+        
+        const typingContent = document.createElement('div');
+        typingContent.className = 'typing-indicator';
+        typingContent.innerHTML = `
+          <span>AI is thinking</span>
+          <div class="typing-dots">
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+            <div class="typing-dot"></div>
+          </div>
+        `;
+        
+        typingElement.appendChild(avatar);
+        typingElement.appendChild(typingContent);
+        
+        conversationBody.appendChild(typingElement);
+        conversationBody.scrollTop = conversationBody.scrollHeight;
+      }
+
+      function hideTypingIndicator() {
+        const typingIndicator = document.getElementById('typingIndicator');
+        if (typingIndicator) {
+          typingIndicator.remove();
+        }
+        isTyping = false;
+      }
+
+      function animateVisualizer() {
+        if (!isPlaying) {
+          visualizerBars.forEach(bar => {
+            bar.style.height = '10px';
+          });
+          return;
+        }
+
+        visualizerBars.forEach(bar => {
+          const height = Math.random() * 40 + 10;
+          bar.style.height = `${height}px`;
+        });
+
+        setTimeout(animateVisualizer, 100);
+      }
 
       const proto = protobuf.load("frames.proto", (err, root) => {
           if (err) {
+              updateStatus('error', 'Failed to load protobuf', err.message);
               throw err;
           }
           Frame = root.lookupType("pipecat.Frame");
-          const progressText = document.getElementById("progressText");
-          progressText.textContent = "We are ready! Make sure to run the server and then click `Start Audio`.";
-
+          updateStatus('ready', 'Ready to start', 'Click "Start Audio" to begin conversation');
           startBtn.disabled = false;
           stopBtn.disabled = true;
       });
 
       function initWebSocket() {
-            //ws = new WebSocket('ws://localhost:8100/ws/test1');
             // Generate a UUID for the WebSocket connection
             const uuid = crypto.randomUUID();
-            // Get the host IP address from the current URL
-            const host = window.location.hostname;
-            // Construct the WebSocket URL using the host IP address and UUID
-            const wsUrl = `ws://${host}:8100/ws/${uuid}`
+            // Get the host from the current URL
+            const host = window.location.host; // includes port if present
+            // Use WSS for HTTPS pages, WS for HTTP pages
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            
+            // For HTTPS deployments (like Lepton), use the same host without explicit port
+            // For local development, keep the port specification
+            let wsHost = host;
+            if (window.location.protocol === 'https:' && host.includes('lepton.run')) {
+                wsHost = window.location.hostname; // Remove port for production deployments
+            } else if (window.location.protocol === 'http:' && !host.includes(':')) {
+                wsHost = `${window.location.hostname}:8100`; // Add port for local development
+            }
+            
+            // Construct the WebSocket URL
+            const wsUrl = `${protocol}//${wsHost}/ws/${uuid}`
+            updateStatus('loading', 'Connecting...', `Connecting to ${wsUrl}`);
+            
             // Create a new WebSocket connection
             ws = new WebSocket(wsUrl);
 
-          ws.addEventListener('open', () => console.log('WebSocket connection established.'));
+          ws.addEventListener('open', () => {
+              console.log('WebSocket connection established.');
+              updateStatus('connected', 'Connected', 'Ready to send and receive audio');
+              // Connection is ready, we can now safely send audio data
+          });
           ws.addEventListener('message', handleWebSocketMessage);
           ws.addEventListener('close', (event) => {
               console.log("WebSocket connection closed.", event.code, event.reason);
+              updateStatus('error', 'Disconnected', 'Connection lost');
               stopAudio(false);
           });
-          ws.addEventListener('error', (event) => console.error('WebSocket error:', event));
+          ws.addEventListener('error', (event) => {
+              console.error('WebSocket error:', event);
+              updateStatus('error', 'Connection Error', 'Failed to connect to server');
+              stopAudio(false);
+          });
       }
 
       async function handleWebSocketMessage(event) {
         try{
-            if (JSON.parse(event.data)){
-                console.log(event.data)
+            const jsonData = JSON.parse(event.data);
+            if (jsonData) {
+                console.log('Received JSON:', jsonData);
+                // Handle any JSON messages here
+                return;
             }
-        } catch{}
+        } catch(e) {
+            // Not JSON, continue with binary processing
+        }
+        
         const arrayBuffer = await event.data.arrayBuffer();
         if (isPlaying) {
             enqueueAudioFromProto(arrayBuffer);
@@ -96,11 +746,18 @@
       }
 
       let activeSources = [];
+      let currentUserSpeech = '';
+      let speechStartTime = null;
 
       function enqueueAudioFromProto(arrayBuffer) {
           const parsedFrame = Frame.decode(new Uint8Array(arrayBuffer));
+          
           if(parsedFrame?.text){
-           // Stop all active audio buffer source nodes
+            // Handle text responses from AI
+            hideTypingIndicator();
+            addMessage('assistant', parsedFrame.text);
+            
+            // Stop all active audio buffer source nodes
             activeSources.forEach(source => {
                 source.stop();
                 console.log("Stopped an active audio playback due to interrupt signal.");
@@ -108,6 +765,7 @@
             activeSources = []; // Clear the list of active sources
             playTime = 0;
           }
+          
           if (!parsedFrame?.audio) {
               return false;
           }
@@ -127,12 +785,24 @@
           audioContext.decodeAudioData(audioArray.buffer, function(buffer) {
               const source = new AudioBufferSourceNode(audioContext);
               source.buffer = buffer;
+              
+              // Apply volume control
+              const gainNode = audioContext.createGain();
+              gainNode.gain.value = volumeSlider.value / 100;
+              
+              source.connect(gainNode);
+              gainNode.connect(audioContext.destination);
+              
               source.start(playTime);
-              source.connect(audioContext.destination);
               playTime = playTime + buffer.duration;
               activeSources.push(source);
 
-                console.log("New audio playback started.");
+              console.log("New audio playback started.");
+              
+              // Show typing indicator when AI starts responding
+              if (!isTyping) {
+                showTypingIndicator();
+              }
           });
       }
 
@@ -154,6 +824,7 @@
 
           startBtn.disabled = true;
           stopBtn.disabled = false;
+          startBtn.classList.add('recording');
 
           audioContext = new (window.AudioContext || window.webkitAudioContext)({
               latencyHint: "interactive",
@@ -161,6 +832,7 @@
           });
 
           isPlaying = true;
+          animateVisualizer();
 
           initWebSocket();
 
@@ -174,31 +846,84 @@
               }
           }).then((stream) => {
               microphoneStream = stream;
-              // 512 is closest thing to 200ms.
-              scriptProcessor = audioContext.createScriptProcessor(512, 1, 1);
-              source = audioContext.createMediaStreamSource(stream);
-              source.connect(scriptProcessor);
-              scriptProcessor.connect(audioContext.destination);
-
-              scriptProcessor.onaudioprocess = (event) => {
-                  if (!ws) {
-                      return;
-                  }
-
-                  const audioData = event.inputBuffer.getChannelData(0);
-                  const pcmS16Array = convertFloat32ToS16PCM(audioData);
-                  const pcmByteArray = new Uint8Array(pcmS16Array.buffer);
-                  const frame = Frame.create({
-                      audio: {
-                          audio: Array.from(pcmByteArray),
+              updateStatus('connected', 'Recording...', 'Speak into your microphone');
+              
+              // Use AudioWorklet instead of deprecated ScriptProcessorNode
+              audioContext.audioWorklet.addModule('audio-processor.js').then(() => {
+                  const audioWorkletNode = new AudioWorkletNode(audioContext, 'audio-processor', {
+                      processorOptions: {
                           sampleRate: SAMPLE_RATE,
                           numChannels: NUM_CHANNELS
                       }
                   });
-                  const encodedFrame = new Uint8Array(Frame.encode(frame).finish());
-                  ws.send(encodedFrame);
-              };
-          }).catch((error) => console.error('Error accessing microphone:', error));
+                  
+                  source = audioContext.createMediaStreamSource(stream);
+                  source.connect(audioWorkletNode);
+                  audioWorkletNode.connect(audioContext.destination);
+                  
+                  // Handle audio data from the worklet
+                  audioWorkletNode.port.onmessage = (event) => {
+                      if (!ws || ws.readyState !== WebSocket.OPEN) {
+                          return;
+                      }
+                      
+                      if (event.data.type === 'audioData') {
+                          const pcmByteArray = new Uint8Array(event.data.data);
+                          const frame = Frame.create({
+                              audio: {
+                                  audio: Array.from(pcmByteArray),
+                                  sampleRate: event.data.sampleRate,
+                                  numChannels: event.data.numChannels
+                              }
+                          });
+                          const encodedFrame = new Uint8Array(Frame.encode(frame).finish());
+                          
+                          try {
+                              ws.send(encodedFrame);
+                          } catch (error) {
+                              console.error('Error sending audio data:', error);
+                          }
+                      }
+                  };
+                  
+                  // Store the worklet node for cleanup
+                  scriptProcessor = audioWorkletNode;
+              }).catch((error) => {
+                  console.error('Failed to load AudioWorklet, falling back to ScriptProcessorNode:', error);
+                  // Fallback to ScriptProcessorNode for older browsers
+                  scriptProcessor = audioContext.createScriptProcessor(512, 1, 1);
+                  source = audioContext.createMediaStreamSource(stream);
+                  source.connect(scriptProcessor);
+                  scriptProcessor.connect(audioContext.destination);
+
+                  scriptProcessor.onaudioprocess = (event) => {
+                      if (!ws || ws.readyState !== WebSocket.OPEN) {
+                          return;
+                      }
+
+                      const audioData = event.inputBuffer.getChannelData(0);
+                      const pcmS16Array = convertFloat32ToS16PCM(audioData);
+                      const pcmByteArray = new Uint8Array(pcmS16Array.buffer);
+                      const frame = Frame.create({
+                          audio: {
+                              audio: Array.from(pcmByteArray),
+                              sampleRate: SAMPLE_RATE,
+                              numChannels: NUM_CHANNELS
+                          }
+                      });
+                      const encodedFrame = new Uint8Array(Frame.encode(frame).finish());
+                      
+                      try {
+                          ws.send(encodedFrame);
+                      } catch (error) {
+                          console.error('Error sending audio data:', error);
+                      }
+                  };
+              });
+          }).catch((error) => {
+              console.error('Error accessing microphone:', error);
+              updateStatus('error', 'Microphone Error', 'Failed to access microphone');
+          });
       }
 
       function stopAudio(closeWebsocket) {
@@ -206,9 +931,14 @@
           isPlaying = false;
           startBtn.disabled = false;
           stopBtn.disabled = true;
+          startBtn.classList.remove('recording');
+
+          updateStatus('ready', 'Ready to start', 'Click "Start Audio" to begin conversation');
 
           if (ws && closeWebsocket) {
-              ws.close();
+              if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+                  ws.close();
+              }
               ws = null;
           }
 
@@ -218,11 +948,19 @@
           if (source) {
               source.disconnect();
           }
+          
+          hideTypingIndicator();
       }
 
       function stopAudioBtnHandler() {
           stopAudio(true);
       }
+
+      // Volume control
+      volumeSlider.addEventListener('input', (e) => {
+          // Volume will be applied to future audio playback
+          console.log('Volume set to:', e.target.value + '%');
+      });
 
       startBtn.addEventListener('click', startAudioBtnHandler);
       stopBtn.addEventListener('click', stopAudioBtnHandler);

@@ -26,6 +26,7 @@ COPY pyproject.toml uv.lock \
 COPY src/ ./src/
 COPY examples/static/ ./examples/static/
 COPY examples/speech-to-speech/ ./examples/speech-to-speech/
+COPY examples/static/ /app/static/
 
 # Example app directory
 WORKDIR /app/examples/speech-to-speech
