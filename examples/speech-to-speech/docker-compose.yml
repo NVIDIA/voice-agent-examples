@@ -2,7 +2,7 @@ name: voice-agent
 
 services:
   riva-tts-magpie:
-    image: nvcr.io/nim/nvidia/magpie-tts-multilingual:latest
+    image: nvcr.io/nim/nvidia/magpie-tts-multilingual:1.3.0
     environment:
       - NGC_API_KEY=${NVIDIA_API_KEY}
       - NIM_HTTP_API_PORT=9000
@@ -22,7 +22,7 @@ services:
               capabilities: [gpu]
 
   riva-asr-parakeet:
-    image: nvcr.io/nim/nvidia/parakeet-1-1b-ctc-en-us:latest
+    image: nvcr.io/nim/nvidia/parakeet-1-1b-ctc-en-us:1.3.0
     environment:
       - NGC_API_KEY=${NVIDIA_API_KEY}
       - NIM_HTTP_API_PORT=9001
@@ -42,7 +42,7 @@ services:
               capabilities: [gpu]
 
   nvidia-llm:
-    image: nvcr.io/nim/meta/llama-3.1-8b-instruct:latest
+    image: nvcr.io/nim/meta/llama-3.1-8b-instruct:1.8.6
     environment:
       - NGC_API_KEY=${NVIDIA_API_KEY}
       - NIM_HTTP_API_PORT=8000
@@ -73,7 +73,7 @@ services:
       - RIVA_TTS_URL=riva-tts-magpie:50051
       - NVIDIA_LLM_URL=http://nvidia-llm:8000/v1
 
-      - RIVA_ASR_MODEL=parakeet-1.1b-en-US-asr-streaming-silero-vad-asr-bls-ensemble
+      - RIVA_ASR_MODEL=parakeet-1.1b-en-US-asr-streaming-silero-vad-sortformer
       - RIVA_TTS_MODEL=magpie_tts_ensemble-Magpie-Multilingual
       - NVIDIA_LLM_MODEL=meta/llama-3.1-8b-instruct
 

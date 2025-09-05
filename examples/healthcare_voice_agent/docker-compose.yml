@@ -2,7 +2,7 @@ name: voice-agents-webrtc
 
 services:
   riva-tts-magpie:
-    image: nvcr.io/nim/nvidia/magpie-tts-multilingual:latest
+    image: nvcr.io/nim/nvidia/magpie-tts-multilingual:1.3.0
     user: "0:0"
     env_file: 
       - path: ./.env
@@ -38,7 +38,7 @@ services:
         max-file: "5"
 
   riva-asr-parakeet:
-    image: nvcr.io/nim/nvidia/parakeet-1-1b-ctc-en-us:latest
+    image: nvcr.io/nim/nvidia/parakeet-1-1b-ctc-en-us:1.3.0
     user: "0:0"
     env_file:
       - path: ./.env
@@ -104,7 +104,7 @@ services:
   ui-app:
     build:
       context: ../webrtc_ui
-      dockerfile: ../webrtc_ui/Dockerfile
+      dockerfile: Dockerfile
     ports:
       - "9000:8000"
     depends_on:

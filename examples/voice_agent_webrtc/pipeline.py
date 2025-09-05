@@ -157,7 +157,7 @@ async def run_bot(webrtc_connection, ws: WebSocket):
         api_key=os.getenv("NVIDIA_API_KEY"),
         language=os.getenv("RIVA_ASR_LANGUAGE", "en-US"),
         sample_rate=16000,
-        model=os.getenv("RIVA_ASR_MODEL", "parakeet-1.1b-en-US-asr-streaming-silero-vad-asr-bls-ensemble"),
+        model=os.getenv("RIVA_ASR_MODEL", "parakeet-1.1b-en-US-asr-streaming-silero-vad-sortformer"),
     )
 
     # Load IPA dictionary with error handling

@@ -256,7 +256,7 @@ class RivaASRService(STTService):
         server: str = "grpc.nvcf.nvidia.com:443",
         function_id: str = "1598d209-5e27-4d3c-8079-4751568b1081",
         language: Language | None = Language.EN_US,
-        model: str = "parakeet-1.1b-en-US-asr-streaming-asr-bls-ensemble",
+        model: str = "parakeet-1.1b-en-US-asr-streaming-silero-vad-sortformer",
         profanity_filter: bool = False,
         automatic_punctuation: bool = False,
         no_verbatim_transcripts: bool = True,

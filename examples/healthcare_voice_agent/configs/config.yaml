@@ -25,7 +25,7 @@ RivaASRService:
     server: "riva-asr-parakeet:50052"
     language: "en-US"
     sample_rate: 16000
-    model: "parakeet-1.1b-en-US-asr-streaming-silero-vad-asr-bls-ensemble"
+    model: "parakeet-1.1b-en-US-asr-streaming-silero-vad-sortformer"
 
 RivaTTSService:
     server: "riva-tts-magpie:50051"
