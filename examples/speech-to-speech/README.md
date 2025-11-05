@@ -4,14 +4,14 @@ In this example, we showcase how to build a simple speech-to-speech voice assist
 
 ## Steps to deploy speech-to-speech application
 
-1. Clone the ace-controller repository:
+1. Clone the voice-agent-examples repository:
     ```bash
-    git clone https://gitlab-master.nvidia.com/ace/ace-controller.git
+    git clone https://gitlab-master.nvidia.com/ace/voice-agent-examples.git
     ```
 
 2. Navigate to the example directory:
     ```bash
-    cd ace-controller/examples/speech-to-speech
+    cd voice-agent-examples/examples/speech-to-speech
     ```
 
 3. Copy and configure the environment file:

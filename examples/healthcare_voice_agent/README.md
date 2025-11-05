@@ -21,7 +21,7 @@ In this example, we showcase how to build a patient front desk voice agent pipel
 
 ## Repository Cloning, Setup API keys and Service Settings
 
-1. Cloning only fetches the main repository (ace-controller), and leaves the submodule [GenerativeAIExamples](https://github.com/NVIDIA/GenerativeAIExamples/tree/main) directory empty. To retrieve the submodule, navigate to the newly cloned ace-controller repository and run:
+1. Cloning only fetches the main repository (voice-agent-examples), and leaves the submodule [GenerativeAIExamples](https://github.com/NVIDIA/GenerativeAIExamples/tree/main) directory empty. To retrieve the submodule, navigate to the newly cloned voice-agent-examples repository and run:
 
     ```
     git submodule update --init --recursive

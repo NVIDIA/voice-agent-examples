@@ -4,16 +4,16 @@ In this example, we showcase how to build a speech-to-speech voice assistant pip
 
 ## Steps to deploy voice_agent_webrtc application
 
-1. Clone the ace-controller repository:
+1. Clone the voice-agent-examples repository:
 
    ```bash
-   git clone https://gitlab-master.nvidia.com/ace/ace-controller.git
+   git clone https://gitlab-master.nvidia.com/ace/voice-agent-examples.git
    ```
 
 2. Navigate to the example directory:
 
    ```bash
-   cd ace-controller/examples/voice_agent_webrtc
+   cd voice-agent-examples/examples/voice_agent_webrtc
    ```
 
 3. Copy and configure the environment file:

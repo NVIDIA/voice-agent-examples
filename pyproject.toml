@@ -48,7 +48,7 @@ url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [project.urls]
-GitHub = "https://github.com/NVIDIA/ace-controller"
+GitHub = "https://github.com/NVIDIA/voice-agent-examples"
 Documentation = "https://docs.nvidia.com/ace/ace-controller-microservice/latest/index.html"
 
 [dependency-groups]
