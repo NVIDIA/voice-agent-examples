@@ -75,8 +75,11 @@ def signal_handler(signum, frame):
 signal.signal(signal.SIGINT, signal_handler)
 signal.signal(signal.SIGTERM, signal_handler)
 
+# Constants
+DEFAULT_OUTPUT_WAV = "bot_response.wav"
 
-def write_audio_to_wav(data, wf, create_new_file=False, output_file="bot_response.wav"):
+
+def write_audio_to_wav(data, wf, create_new_file=False, output_file=DEFAULT_OUTPUT_WAV):
     """Write audio data to WAV file."""
     try:
         # Parse protobuf frame
@@ -242,7 +245,7 @@ async def receive_audio(
     wf=None,
     create_new_file=True,
     is_after_input=False,
-    output_wav="bot_response.wav",
+    output_wav=DEFAULT_OUTPUT_WAV,
     is_initial=False,
     timeout=1.0,
 ):

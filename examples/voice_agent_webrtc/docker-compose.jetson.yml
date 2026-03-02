@@ -1,0 +1,81 @@
+name: voice-agent-webrtc-jetson
+
+volumes:
+  nim_cache:
+
+services:
+  # =============================================================================
+  # LLM Service
+  # =============================================================================
+
+  llm-nvidia-jetson:
+    runtime: nvidia
+    image: nvcr.io/nvidia/vllm:25.10-py3
+    container_name: llm-nvidia-jetson
+    env_file:
+      - .env.jetson
+    ports:
+      - "9000:8000"
+    volumes:
+      - nim_cache:/root/.cache
+    shm_size: 16GB
+    restart: unless-stopped
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        python3 -m vllm.entrypoints.openai.api_server \
+          --model "$${NVIDIA_LLM_MODEL:-RedHatAI/Meta-Llama-3.1-8B-Instruct-quantized.w4a16}" \
+          --host 0.0.0.0 \
+          --port 8000 \
+          --max-model-len 4096 \
+          --gpu-memory-utilization "$${GPU_MEMORY_UTILIZATION:-0.15}" \
+          --enforce-eager \
+          --trust-remote-code
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 10
+      start_period: 1200s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # =============================================================================
+  # Voice Agent Application
+  # =============================================================================
+
+  python-app:
+    build:
+      context: ../../
+      dockerfile: examples/voice_agent_webrtc/Dockerfile
+    container_name: voice-agent-webrtc-jetson
+    network_mode: host
+    env_file:
+      - .env.jetson
+    volumes:
+      - ./audio_dumps:/app/examples/voice_agent_webrtc/audio_dumps
+      - ./prompt.yaml:/app/examples/voice_agent_webrtc/prompt.yaml:ro
+      - ./ipa.json:/app/examples/voice_agent_webrtc/ipa.json:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:7860/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =============================================================================
+  # UI Application
+  # =============================================================================
+
+  ui-app:
+    build:
+      context: ../webrtc_ui
+      dockerfile: Dockerfile
+    container_name: webrtc-ui-jetson
+    ports:
+      - "8081:8000"
+    restart: unless-stopped
+

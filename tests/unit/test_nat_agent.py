@@ -45,8 +45,8 @@ class TestNATAgentService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(service.top_p, 0.8)
         self.assertEqual(service.max_tokens, 500)
         self.assertFalse(service.use_knowledge_base)
-        self.assertEqual(service._last_used_phrase, None)
-        self.assertEqual(service._last_query, None)
+        self.assertIsNone(service._last_used_phrase)
+        self.assertIsNone(service._last_query)
         self.assertIsNotNone(service._default_phrases)
 
     def test_initialization_with_stop_words(self):

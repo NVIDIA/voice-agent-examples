@@ -8,6 +8,8 @@ by incorporating knowledge from external documents. Features include:
     - Configurable retrieval parameters
 """
 
+from __future__ import annotations
+
 import json
 import random
 import re
@@ -20,21 +22,29 @@ from openai.types.chat import ChatCompletionMessageParam
 from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
-    ErrorFrame,
     Frame,
+    InterruptionFrame,
+    LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
-    LLMMessagesFrame,
-    StartInterruptionFrame,
+    LLMMessagesUpdateFrame,
     TextFrame,
     TTSSpeakFrame,
     UserImageRawFrame,
     UserStoppedSpeakingFrame,
 )
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext, OpenAILLMContextFrame
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.openai.llm import OpenAILLMService
 from rapidfuzz.distance import Levenshtein
+
+# Fallback when NAT returns invalid planner JSON so history and TTS stay clean
+INVALID_PLANNER_RESPONSE_PREFIX = "The output of planner is invalid JSON format:"
+DEFAULT_OPENING_FALLBACK = (
+    "Oops, I had a little hiccup. What would you like to do—browse the menu or ask about something?"
+)
+MAX_HISTORY_MESSAGES = 5  # Last N messages (excluding current query)
+MAX_MESSAGE_CHARS = 1200  # Truncate each message to avoid huge tool outputs
 
 
 class NATAgentService(OpenAILLMService):
@@ -139,12 +149,15 @@ class NATAgentService(OpenAILLMService):
 
             for tool_name, tool_config in functions.items():
                 natural_phrases = tool_config.get("natural_phrases", [])
-                # Handle case where natural_phrases is None (empty YAML value)
                 if natural_phrases is None:
                     natural_phrases = []
                 tools_dict[tool_name] = {"name": tool_name, "natural_phrases": natural_phrases}
+                logger.debug(
+                    f"Loaded tool '{tool_name}' with {len(natural_phrases)} natural phrases: {natural_phrases}"
+                )
 
             logger.info(f"Loaded {len(tools_dict)} tools from config file: {config_file}")
+            logger.info(f"Tool names: {list(tools_dict.keys())}")
             return tools_dict
 
         except yaml.YAMLError as e:
@@ -211,6 +224,28 @@ class NATAgentService(OpenAILLMService):
             await NATAgentService._shared_session.aclose()
             NATAgentService._shared_session = None
 
+    def _content_to_text(self, content) -> str:
+        """Convert message content to text string.
+
+        Handles both string content and structured content (list of parts).
+
+        Args:
+            content: Either a string or a list of content parts
+
+        Returns:
+            str: The text content extracted from the message
+        """
+        if isinstance(content, str):
+            return content
+        elif isinstance(content, list):
+            # Extract text from structured content parts
+            text_parts = []
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    text_parts.append(part.get("text", ""))
+            return " ".join(text_parts)
+        return ""
+
     async def test_connection(self) -> bool:
         """Test if the NATAgent service is reachable.
 
@@ -247,9 +282,8 @@ class NATAgentService(OpenAILLMService):
             resp = await self.shared_session.post(
                 f"{self.agent_server_url}/chat/stream",
                 json=request_json,
-                timeout=30.0,  # Add explicit timeout
+                timeout=30.0,
             )
-            # Check if response was successful
             resp.raise_for_status()
             logger.debug(f"NAT Agent: Successfully received response: {resp.status_code}")
             return resp
@@ -266,6 +300,19 @@ class NATAgentService(OpenAILLMService):
             logger.error(f"Unexpected error in NATAgent request: {type(e).__name__}: {e}")
             raise
 
+    def _replace_invalid_planner_response(self, text: str) -> str:
+        """Replace NAT invalid-planner-JSON error with a safe fallback for history and TTS.
+
+        When the ReWOO planner fails to output valid JSON, NAT can return that error as the
+        assistant message; replacing it keeps conversation history and TTS output clean.
+        """
+        if not text or not text.strip():
+            return text
+        stripped = text.strip()
+        if stripped.startswith(INVALID_PLANNER_RESPONSE_PREFIX):
+            return DEFAULT_OPENING_FALLBACK
+        return text
+
     def _sanitize_text_for_tts(self, text: str) -> str:
         """Sanitize text to prevent TTS errors with special characters.
 
@@ -276,22 +323,18 @@ class NATAgentService(OpenAILLMService):
         """
         if not text:
             return ""
+        text = self._replace_invalid_planner_response(text)
         # Remove or replace problematic characters that can cause TTS issues
         # Remove control characters except newlines and tabs
         text = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]", "", text)
-        # Replace multiple consecutive whitespace with single space
         text = re.sub(r"\s+", " ", text)
-        # Remove or replace common problematic patterns
         # Fix unmatched brackets/quotes that might cause parsing issues
         brackets = {"[": "]", "{": "}", "(": ")"}
         quotes = ['"', "'", "`"]
-        # Simple bracket matching - remove unmatched opening brackets at end
         for open_char, close_char in brackets.items():
             if text.count(open_char) > text.count(close_char):
-                # Remove trailing unmatched opening brackets
                 while text.endswith(open_char):
                     text = text[:-1].strip()
-        # Remove unmatched quotes at the end
         for quote in quotes:
             if text.count(quote) % 2 == 1 and text.endswith(quote):
                 text = text[:-1].strip()
@@ -310,15 +353,12 @@ class NATAgentService(OpenAILLMService):
 
     def _format_data_structures_for_speech(self, text: str) -> str:
         """Convert Python data structures to speech-friendly format."""
-        # Pattern to match dictionary-like structures
         dict_pattern = r"\{[^{}]*\}"
         list_pattern = r"\[[^\[\]]*\]"
 
         def format_dict_match(match):
             dict_str = match.group(0)
             try:
-                # Try to parse as a dictionary-like structure
-                # Replace single quotes with double quotes for JSON parsing
                 dict_str_json = dict_str.replace("'", '"')
                 parsed = json.loads(dict_str_json)
                 if isinstance(parsed, dict):
@@ -333,7 +373,6 @@ class NATAgentService(OpenAILLMService):
                 elif isinstance(parsed, list):
                     return ", ".join(str(item) for item in parsed)
             except (json.JSONDecodeError, TypeError):
-                # If parsing fails, just clean up the formatting
                 cleaned = dict_str.replace("{", "").replace("}", "")
                 cleaned = cleaned.replace("[", "").replace("]", "")
                 cleaned = cleaned.replace("'", "")
@@ -343,14 +382,12 @@ class NATAgentService(OpenAILLMService):
         def format_list_match(match):
             list_str = match.group(0)
             try:
-                # Clean up list formatting
                 cleaned = list_str.replace("[", "").replace("]", "")
                 cleaned = cleaned.replace("'", "")
                 return cleaned
             except Exception:
                 return list_str
 
-        # Apply transformations
         text = re.sub(dict_pattern, format_dict_match, text)
         text = re.sub(list_pattern, format_list_match, text)
         return text
@@ -403,7 +440,153 @@ class NATAgentService(OpenAILLMService):
         self._last_used_phrase = selected_phrase
         return selected_phrase
 
-    async def _process_context(self, context: OpenAILLMContext):
+    async def handle_data_chunk(self, chunk: str) -> str:
+        """Handle a chunk with 'data:' prefix.
+
+        Args:
+            chunk: Raw chunk string starting with 'data:'
+
+        Returns:
+            Extracted message content or empty string
+        """
+        chunk = chunk[6:].strip()
+        message = ""
+
+        try:
+            parsed = json.loads(chunk)
+            choices = parsed.get("choices", [])
+            if choices:
+                choice = choices[0]
+                if isinstance(choice, dict):
+                    message_data = choice.get("message")
+                    if isinstance(message_data, dict):
+                        message = message_data.get("content", "") or ""
+                    else:
+                        delta_data = choice.get("delta")
+                        if isinstance(delta_data, dict):
+                            message = delta_data.get("content", "") or ""
+                        else:
+                            logger.warning(f"NAT Agent: choice has neither message nor delta: {type(choice)}")
+                else:
+                    logger.warning(f"NAT Agent: choice is not a dict: {type(choice)}, value: {choice}")
+        except json.JSONDecodeError as e:
+            logger.error(f"NAT Agent: Failed to parse data chunk: {e}")
+            return ""
+
+        return message
+
+    async def handle_intermediate_data_chunk(self, chunk: str, filler_sent: bool) -> bool:
+        """Handle a chunk with 'intermediate_data:' prefix.
+
+        Args:
+            chunk: Raw chunk string starting with 'intermediate_data:'
+            filler_sent: Whether a filler message has already been sent
+
+        Returns:
+            Updated filler_sent status
+        """
+        logger.debug("NAT Agent: Got intermediate data")
+        chunk = chunk[19:].strip()
+        logger.debug(f"NAT Agent: Raw intermediate chunk after prefix removal: {repr(chunk)}")
+
+        if not chunk:
+            logger.debug("NAT Agent: Intermediate chunk is empty after prefix removal")
+            return filler_sent
+
+        try:
+            parsed = json.loads(chunk)
+            logger.debug(f"NAT Agent: Parsed intermediate JSON: {parsed}")
+
+            payload = parsed.get("payload", "")
+            chunk_name = parsed.get("name", "")
+            chunk_type = parsed.get("type", "")
+
+            logger.debug(f"NAT Agent: Intermediate payload: {payload}")
+            logger.debug(f"NAT Agent: Chunk name: '{chunk_name}', type: '{chunk_type}'")
+
+            # Handle Function Start
+            if chunk_name.startswith("Function Start:"):
+                function_name = chunk_name.replace("Function Start:", "").strip().strip("<>")
+                logger.debug(f"NAT Agent: Detected Function Start for: '{function_name}'")
+
+                if function_name == "workflow":
+                    logger.debug("NAT Agent: Skipping workflow function start")
+                    return filler_sent
+
+                if function_name in self._tools:
+                    logger.debug(f"NAT Agent: Function '{function_name}' matches a tool")
+                    logger.debug(f"NAT Agent: Available tools: {list(self._tools.keys())}")
+
+                    if (self.current_action is None) or (self.current_action != function_name):
+                        self.current_action = function_name
+                        self.current_thought = f"Calling {function_name}"
+
+                        random_message = self.get_random_message(self._tools[function_name]["natural_phrases"])
+
+                        if not filler_sent:
+                            logger.debug(
+                                f"NAT Agent: Sending Filler message '{random_message}' for function '{function_name}'"
+                            )
+                            await self.push_frame(TTSSpeakFrame(random_message))
+                            filler_sent = True
+                        else:
+                            logger.debug(f"NAT Agent: Filler already sent, skipping for '{function_name}'")
+                    else:
+                        logger.debug(f"NAT Agent: Skipping filler - same action as before: {function_name}")
+                else:
+                    logger.debug(
+                        f"NAT Agent: Function '{function_name}' not in tools. Available: {list(self._tools.keys())}"
+                    )
+
+            # Handle Output section (ReAct format)
+            output_section_match = re.search(r"\*\*Output:\*\*(.*?)(?=\*\*|$)", payload, re.DOTALL)
+            if output_section_match:
+                output_text = output_section_match.group(1).strip()
+                logger.debug(f"NAT Agent: Found Output section (ReAct format): {output_text}")
+
+                # Look for single-line Thought and Action
+                thought_match = re.search(r"Thought:(.*?)(?=\n|$)", output_text)
+                action_match = re.search(r"Action:(.*?)(?=\n|$)", output_text)
+
+                if thought_match:
+                    thought = thought_match.group(1).strip()
+                    logger.debug(f"NAT Agent: Extracted Thought: {thought}")
+
+                if action_match:
+                    action = action_match.group(1).strip()
+                    logger.debug(f"NAT Agent: Extracted Action: {action}")
+                    logger.debug(f"NAT Agent: Available tools: {list(self._tools.keys())}")
+                    logger.debug(f"NAT Agent: Action in tools? {action in self._tools}")
+
+                    if action in self._tools and (
+                        (self.current_action is None or self.current_thought is None)
+                        or (self.current_action != action and self.current_thought != thought)
+                    ):
+                        self.current_action = action
+                        self.current_thought = thought
+                        random_message = self.get_random_message(self._tools[action]["natural_phrases"])
+                        if not filler_sent:
+                            logger.debug(
+                                f"NAT Agent: Sending Filler message {random_message} on Action {action} downstream"
+                            )
+                            await self.push_frame(TTSSpeakFrame(random_message))
+                            filler_sent = True
+                    else:
+                        logger.debug(
+                            f"NAT Agent: Skipping filler - action in tools: "
+                            f"{action in self._tools}, current_action: {self.current_action}, "
+                            f"current_thought: {self.current_thought}"
+                        )
+                else:
+                    # Expected when solver returns plain text only (no Thought/Action)
+                    pass
+
+        except json.JSONDecodeError as e:
+            logger.error(f"NAT Agent: Failed to parse intermediate chunk: {e}")
+
+        return filler_sent
+
+    async def _process_context(self, context: LLMContext):
         """Processes LLM context through NATAgent pipeline.
 
         Args:
@@ -415,23 +598,26 @@ class NATAgentService(OpenAILLMService):
         try:
             messages: list[ChatCompletionMessageParam] = context.get_messages()
 
-            # Separate conversation history (all except last) and current query
             if not messages:
                 raise Exception("No query is provided..")
 
             conversation_parts = []
             if len(messages) > 1:
-                # Process all messages except the last one as conversation history
-                for msg in messages[:-1]:
+                history = messages[:-1]
+                if len(history) > MAX_HISTORY_MESSAGES:
+                    history = history[-MAX_HISTORY_MESSAGES:]
+                for msg in history:
                     if msg["role"] != "system" and msg["role"] != "user" and msg["role"] != "assistant":
                         raise Exception(f"Unexpected role {msg['role']} found!")
 
                     role = msg["role"]
-                    content = msg.get("content", "").strip()
-                    if content:  # Only include messages with content
+                    content = self._content_to_text(msg.get("content", "")).strip()
+                    content = self._replace_invalid_planner_response(content)
+                    if len(content) > MAX_MESSAGE_CHARS:
+                        content = content[: MAX_MESSAGE_CHARS - 3] + "..."
+                    if content:
                         conversation_parts.append(f'{role} said "{content}"')
 
-            # Get the last message as current query
             last_message = messages[-1]
             if (
                 last_message["role"] != "system"
@@ -440,11 +626,10 @@ class NATAgentService(OpenAILLMService):
             ):
                 raise Exception(f"Unexpected role {last_message['role']} found!")
 
-            current_query = last_message.get("content", "").strip()
+            current_query = self._content_to_text(last_message.get("content", "")).strip()
             if not current_query:
                 raise Exception("Current query is empty..")
 
-            # Combine conversation history and current query
             conversation_content_parts = []
             if conversation_parts:
                 conversation_content_parts.append(", ".join(conversation_parts))
@@ -457,7 +642,6 @@ class NATAgentService(OpenAILLMService):
             if not conversation_content:
                 raise Exception("No query is provided..")
 
-            # Send as single user message with conversation history (like frontend)
             chat_details = [{"role": "user", "content": conversation_content}]
             """
             Call the NATAgent chain server and return the streaming response.
@@ -469,86 +653,31 @@ class NATAgentService(OpenAILLMService):
                 "top_p": self.top_p,
                 "max_tokens": self.max_tokens,
             }
-            # Validate configuration before making request
             if not self.agent_server_url:
                 raise ValueError("NATAgent server URL is not configured")
             if not hasattr(self, "shared_session") or self.shared_session is None:
                 raise RuntimeError("HTTP session is not initialized")
-            # Debug logging for the request
-            logger.debug(f"NAT Agent: Making request to NATAgent endpoint: {self.agent_server_url}/chat/stream")
-            logger.debug(f"NAT Agent: Request payload keys: {list(request_json.keys())}")
-            logger.debug(f"NAT Agent: Messages count: {len(request_json.get('messages', []))}")
-            logger.debug(f"NAT Agent: Use knowledge base: {request_json.get('use_knowledge_base', False)}")
             filler_sent = False
             full_response = ""
             await self.start_ttfb_metrics()
             resp = await self._get_natagent_response(request_json)
-            logger.debug(f"NAT Agent: Received response with status: {resp.status_code}")
-            logger.debug(f"NAT Agent: Response headers: {dict(resp.headers)}")
             try:
                 async for chunk in resp.aiter_lines():
                     try:
                         chunk = chunk.strip()
+
                         if not chunk:
                             logger.debug("NAT Agent: Empty chunk, skipping")
                             continue
+
                         await self.stop_ttfb_metrics()
-                        # Handle different chunk prefixes
+
                         message = ""
+
                         if chunk.startswith("data: "):
-                            # Handle regular data chunks
-                            chunk = chunk[6:].strip()  # Remove "data: " prefix
-                            try:
-                                parsed = json.loads(chunk)
-                                choices = parsed.get("choices", [])
-                                if choices:
-                                    message_data = choices[0].get("message", {})
-                                    message = message_data.get("content", "")
-                            except json.JSONDecodeError as e:
-                                logger.error(f"NAT Agent: Failed to parse data chunk: {e}")
-                                continue
+                            message = await self.handle_data_chunk(chunk)
                         elif chunk.startswith("intermediate_data: "):
-                            logger.debug("We got intermediate data")
-                            # Handle intermediate data chunks
-                            chunk = chunk[19:].strip()  # Remove "intermediate_data: " prefix
-                            try:
-                                parsed = json.loads(chunk)
-                                payload = parsed.get("payload", "")
-                                # First find the **Output** section if it exists
-                                output_section_match = re.search(r"\*\*Output:\*\*(.*?)(?=\*\*|$)", payload, re.DOTALL)
-                                if output_section_match:
-                                    output_text = output_section_match.group(1).strip()
-                                    # Look for single-line Thought and Action
-                                    thought_match = re.search(r"Thought:(.*?)(?=\n|$)", output_text)
-                                    action_match = re.search(r"Action:(.*?)(?=\n|$)", output_text)
-                                    if thought_match:
-                                        thought = thought_match.group(1).strip()
-                                    if action_match:
-                                        action = action_match.group(1).strip()
-                                        if action in self._tools and (
-                                            (self.current_action is None or self.current_thought is None)
-                                            or (self.current_action != action and self.current_thought != thought)
-                                        ):
-                                            self.current_action = action
-                                            self.current_thought = thought
-                                            random_message = self.get_random_message(
-                                                self._tools[action]["natural_phrases"]
-                                            )
-                                            if not filler_sent:
-                                                logger.debug(
-                                                    f"NAT Agent: Sending Filler message {random_message} "
-                                                    f"on Action {action} downstream"
-                                                )
-                                                await self.push_frame(TTSSpeakFrame(random_message))
-                                                filler_sent = True
-                                            # # Add full stop if not present
-                                            # thought_with_stop = (
-                                            #     thought if thought.endswith('.') else f"{thought}."
-                                            # )
-                                            # await self.push_frame(TextFrame(f"{thought_with_stop} "))
-                            except json.JSONDecodeError as e:
-                                logger.error(f"Failed to parse intermediate chunk: {e}")
-                                continue
+                            filler_sent = await self.handle_intermediate_data_chunk(chunk, filler_sent)
                         else:
                             logger.warning(f"Unknown chunk format: {repr(chunk)}")
                             continue
@@ -566,15 +695,13 @@ class NATAgentService(OpenAILLMService):
                     if sanitized_message:
                         await self.push_frame(TextFrame(sanitized_message))
             except Exception as e:
-                await self.push_error(ErrorFrame("Internal error in NATAgent stream: " + str(e)))
+                await self.push_error("Internal error in NATAgent stream: " + str(e))
             finally:
                 await resp.aclose()
             logger.debug(f"NAT Agent: Full NATAgent response - {full_response}")
         except Exception as e:
             logger.error(f"An error occurred in http request to NATAgent endpoint, Error:  {e}")
-            await self.push_error(
-                ErrorFrame("An error occurred in http request to NATAgent endpoint, Error: " + str(e))
-            )
+            await self.push_error("An error occurred in http request to NATAgent endpoint, Error: " + str(e))
 
     async def _update_settings(self, settings):
         """Updates service settings.
@@ -598,7 +725,7 @@ class NATAgentService(OpenAILLMService):
                 case _:
                     logger.warning(f"Unknown setting for NATAgent service: {setting}")
 
-    async def _process_context_and_frames(self, context: OpenAILLMContext):
+    async def _process_context_and_frames(self, context: LLMContext):
         """Process context and handle start/end frames with metrics."""
         await self.push_frame(LLMFullResponseStartFrame())
         await self.start_processing_metrics()
@@ -618,17 +745,21 @@ class NATAgentService(OpenAILLMService):
         context = None
         if isinstance(frame, UserStoppedSpeakingFrame):
             self._last_query = None
-        # if isinstance(frame, NATAgentSettingsFrame):
-        #     await self._update_settings(frame.settings)
-        if isinstance(frame, OpenAILLMContextFrame):
-            context: OpenAILLMContext = frame.context
-        elif isinstance(frame, LLMMessagesFrame):
-            context = OpenAILLMContext.from_messages(frame.messages)
+        if isinstance(frame, LLMContextFrame):
+            context: LLMContext = frame.context
+        elif isinstance(frame, LLMMessagesUpdateFrame):
+            context = LLMContext(messages=frame.messages)
         elif isinstance(frame, UserImageRawFrame):
-            context = OpenAILLMContext()
-            context.add_image_frame_message(format=frame.format, size=frame.size, image=frame.image, text=frame.text)
-        elif isinstance(frame, StartInterruptionFrame):
-            logger.debug("NATAgent: Got a startinterruption frame.")
+            img_msg = await LLMContext.create_image_message(
+                role="user",
+                format=frame.format,
+                size=frame.size,
+                image=frame.image,
+                text=getattr(frame, "text", None),
+            )
+            context = LLMContext(messages=[img_msg])
+        elif isinstance(frame, InterruptionFrame):
+            logger.debug("NATAgent: Got an interruption frame.")
             if self._current_task is not None:
                 await self.cancel_task(self._current_task)
             await self._start_interruption()
@@ -641,7 +772,8 @@ class NATAgentService(OpenAILLMService):
             # Check for similarity with last query BEFORE starting new task
             messages = context.get_messages()
             if messages and len(messages) > 0:
-                current_query = messages[-1]["content"].strip()
+                last_message = messages[-1]
+                current_query = self._content_to_text(last_message.get("content", "")).strip()
                 logger.debug(f"NAT Agent: Current query is '{current_query}'")
                 logger.debug(f"NAT Agent: The Last Query is '{self._last_query}'.")
 
@@ -652,10 +784,8 @@ class NATAgentService(OpenAILLMService):
                     )
                     if sim >= 0.90:
                         logger.debug("NAT Agent: Not proceeding with the query as its similar to last one")
-                        # Don't start new task for similar query
                         return
 
-                # Update last query for future comparisons
                 self._last_query = current_query
 
             # Cancel current task before starting new one

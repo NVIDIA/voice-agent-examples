@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: BSD 2-Clause License
 
-import { useRef } from "react";
+import { Fragment, forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { LabeledSelect } from "./components/ui/labeled-select";
+import type { VoicesMap } from "./types";
 
 interface UploadedPrompt {
   id: string;
@@ -9,11 +11,15 @@ interface UploadedPrompt {
   file: File;
 }
 
+export interface VoiceSelectorRef {
+  setVoiceFromBackend: (language: string, voice: string) => void;
+}
+
 interface VoiceSelectorProps {
-  voices: string[];
-  selectedVoice: string;
-  onVoiceChange: (voice: string) => void;
+  voices: VoicesMap;
+  onVoiceChange: (language: string, voice: string) => void;
   isZeroshotModel?: boolean;
+  initialVoiceId?: string;  // Preferred voice id to select on init (if available)
   activeCustomPromptId?: string;  // ID of active custom prompt (empty = none selected)
   customPromptName?: string;
   uploadedPrompts?: UploadedPrompt[];
@@ -22,19 +28,53 @@ interface VoiceSelectorProps {
   isConfigureMode?: boolean;  // True when in configure mode (before start)
 }
 
-export function VoiceSelector({ 
-  voices, 
-  selectedVoice, 
+export const VoiceSelector = forwardRef<VoiceSelectorRef, VoiceSelectorProps>(function VoiceSelector({
+  voices,
   onVoiceChange,
   isZeroshotModel = false,
+  initialVoiceId,
   activeCustomPromptId = "",
   customPromptName = "",
   uploadedPrompts = [],
   onFileUpload,
   onSelectPrompt,
   isConfigureMode = false
-}: VoiceSelectorProps) {
+}, ref) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isInitializedRef = useRef<boolean>(false);  // Track if first initialization is done
+  const onVoiceChangeRef = useRef(onVoiceChange);  // Stable ref to avoid effect re-triggers
+  
+  // Track the last value set by backend - used to prevent sending it back
+  const lastBackendSetRef = useRef<{ language: string; voice: string } | null>(null);
+  
+  // Keep callback ref updated
+  useEffect(() => {
+    onVoiceChangeRef.current = onVoiceChange;
+  }, [onVoiceChange]);
+
+  // Helper to find matching language key (case-insensitive)
+  const findLanguageKey = (langCode: string): string => {
+    // First try exact match
+    if (voices[langCode]) return langCode;
+    // Try case-insensitive match
+    const normalizedInput = langCode.toLowerCase();
+    const matchingKey = Object.keys(voices).find(
+      key => key.toLowerCase() === normalizedInput
+    );
+    return matchingKey || langCode;
+  };
+
+  // Expose function to parent for backend-triggered updates
+  useImperativeHandle(ref, () => ({
+    setVoiceFromBackend: (language: string, voice: string) => {
+      // Normalize language code to match voices object keys
+      const normalizedLang = findLanguageKey(language);
+      // Store what backend set - this prevents sending it back in the effect
+      lastBackendSetRef.current = { language: normalizedLang, voice };
+      setSelectedLanguage(normalizedLang);
+      setSelectedVoice([normalizedLang, voice]);
+    }
+  }));
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -56,12 +96,87 @@ export function VoiceSelector({
       fileInputRef.current.value = '';
     }
   };
+
+  const [selectedLanguage, setSelectedLanguage] = useState<string>(Object.keys(voices)[0] || "");
+  const [selectedVoice, setSelectedVoice] = useState<[string, string]>([selectedLanguage, voices[selectedLanguage]?.voices[0] || ""]);
+
+  // Initialize when voices arrive; prefer initialVoiceId if provided and available
+  useEffect(() => {
+    if (isInitializedRef.current) return;
+
+    const entries = Object.entries(voices);
+    if (entries.length === 0) return;
+
+    // Try to find the language containing initialVoiceId
+    let initLang = "";
+    let initVoice = "";
+    if (initialVoiceId) {
+      for (const [lang, data] of entries) {
+        const match = data?.voices?.find((v: string) => v === initialVoiceId);
+        if (match) {
+          initLang = lang;
+          initVoice = match;
+          break;
+        }
+      }
+    }
+
+    // Fallback to first available
+    if (!initLang) {
+      initLang = entries[0][0];
+      initVoice = entries[0][1]?.voices?.[0] || "";
+    }
+
+    setSelectedLanguage(initLang);
+    setSelectedVoice([initLang, initVoice]);
+    
+    if (initLang && initVoice) {
+      isInitializedRef.current = true;
+    }
+  }, [voices, initialVoiceId]);
+
+  // When language changes, update voice to first available for that language
+  // Skip if backend already set a valid voice for this language
+  useEffect(() => {
+    if (!isInitializedRef.current) return;
+    
+    // If backend set a voice, don't override it
+    if (lastBackendSetRef.current && lastBackendSetRef.current.language === selectedLanguage) {
+      return;
+    }
+    
+    const voicesForLang = voices[selectedLanguage]?.voices || [];
+    if (voicesForLang.length > 0 && !voicesForLang.includes(selectedVoice[1])) {
+      setSelectedVoice([selectedLanguage, voicesForLang[0]]);
+    }
+  }, [selectedLanguage, voices]);
+
+  // Notify parent of voice changes - skip initial load and backend syncs
+  useEffect(() => {
+    // Skip if not yet initialized (prevents firing on initial mount)
+    if (!isInitializedRef.current) return;
+    
+    // Check if this matches what backend just set - if so, don't send it back
+    if (lastBackendSetRef.current &&
+        lastBackendSetRef.current.language === selectedLanguage &&
+        lastBackendSetRef.current.voice === selectedVoice[1]) {
+      // This change came from backend, clear the ref and skip sending
+      lastBackendSetRef.current = null;
+      return;
+    }
+    
+    // User-initiated change - send to backend
+    if (selectedLanguage && selectedVoice[1]) {
+      onVoiceChangeRef.current(selectedLanguage, selectedVoice[1]);
+    }
+  }, [selectedLanguage, selectedVoice]);  // Using ref for callback - no onVoiceChange in deps
   
   // Check if we have any custom prompts available
   const hasBackendPrompt = customPromptName !== "";
   const hasAnyCustomPrompts = isZeroshotModel && (hasBackendPrompt || uploadedPrompts.length > 0);
   const hasActiveCustomPrompt = activeCustomPromptId !== "";
-  const hasActiveDefaultVoice = selectedVoice !== "" && !hasActiveCustomPrompt;
+  const hasActiveDefaultVoice = selectedVoice[1] !== "" && !hasActiveCustomPrompt;
+  const languageCodes = useMemo(() => Object.keys(voices), [voices]);
 
   return (
     <div className="mt-4">
@@ -71,7 +186,7 @@ export function VoiceSelector({
           <div className="text-sm text-gray-600 mb-2">
             Custom Voices:
           </div>
-          
+
           {/* File Upload Button - Only in Configure Mode */}
           {onFileUpload && isConfigureMode && (
             <div className="mb-2">
@@ -91,7 +206,7 @@ export function VoiceSelector({
               </button>
             </div>
           )}
-          
+
           <select
             className={`w-full border rounded p-2 text-sm transition-opacity ${hasActiveDefaultVoice ? 'opacity-50' : 'opacity-100'}`}
             value={activeCustomPromptId}
@@ -120,38 +235,34 @@ export function VoiceSelector({
       )}
 
       {/* Default Voices Section */}
-      {voices.length === 0 ? (
+      {selectedLanguage === "" ? (
         <div className="text-sm text-gray-500">No voices available</div>
       ) : (
-        <div>
-          <div className="text-sm text-gray-600 mb-2">
-            Default Voices:
-          </div>
-          <select
-            className={`w-full border rounded p-2 text-sm transition-opacity ${hasActiveCustomPrompt ? 'opacity-50' : 'opacity-100'}`}
-            value={selectedVoice}
-            onChange={(e) => onVoiceChange(e.target.value)}
-            onClick={(e) => {
-              // Trigger handler even when clicking the already-selected option
-              const target = e.target as HTMLSelectElement;
-              if (target.value && target.value === selectedVoice) {
-                onVoiceChange(target.value);
-              }
+        <Fragment>
+          <LabeledSelect
+            label="Language:"
+            options={languageCodes}
+            value={selectedLanguage}
+            onChange={(value) => {
+              setSelectedLanguage(value);
             }}
-          >
-            <option value="" disabled>
-              Select a voice
-            </option>
-            {voices.map((v) => (
-              <option key={v} value={v}>
-                {v}
-              </option>
-            ))}
-          </select>
-        </div>
+            placeholder="Select a language"
+            dimmed={hasActiveCustomPrompt}
+            disabled={true}
+          />
+          <LabeledSelect
+            label="Default Voices:"
+            options={voices[selectedLanguage]?.voices || []}
+            value={selectedVoice[1]}
+            onChange={(value) => {
+              setSelectedVoice([selectedLanguage, value]);
+            }}
+            placeholder="Select a voice"
+            dimmed={hasActiveCustomPrompt}
+            containerClassName="mb-3"
+          />
+        </Fragment>
       )}
     </div>
   );
-}
-
-
+});

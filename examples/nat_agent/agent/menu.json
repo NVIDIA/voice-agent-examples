@@ -1,40 +1,22 @@
 {
-    "menu": {
-      "Dozen Red Roses": {"price": 45.99, "description": "12 premium red roses (Rosa rubiginosa) with long stems, beautifully arranged in a crystal glass vase with baby's breath and greenery"},
-      "Tulip Bouquet": {"price": 24.5, "description": "8 vibrant Dutch tulips (Tulipa gesneriana) in mixed colors - red, yellow, and pink - arranged in a ceramic garden vase with decorative ribbon"},
-      "Lily Arrangement": {"price": 32.75, "description": "6 elegant white Asiatic lilies (Lilium asiaticum) with eucalyptus leaves and fern, presented in an elegant tall vase"},
-      "Sunflower Bundle": {"price": 18.25, "description": "5 large sunflowers (Helianthus annuus) with natural stems, wrapped in brown kraft paper with twine - perfect for rustic arrangements"},
-      "Mixed Spring Flowers": {"price": 28.99, "description": "Seasonal spring bouquet featuring daffodils, tulips, hyacinths, and cherry blossom branches in a ceramic garden vase with moss accent"},
-      "Crystal Glass Vase": {"price": 22.99, "description": "Hand-blown crystal glass vase, 12 inches tall with diamond-cut pattern, perfect for long-stemmed flowers"},
-      "Ceramic Garden Vase": {"price": 16.5, "description": "Handcrafted ceramic vase with earth-tone glaze, 8 inches tall, ideal for medium-sized bouquets"},
-      "Elegant Tall Vase": {"price": 34.75, "description": "Premium frosted glass vase, 16 inches tall with silver rim detail, designed for dramatic tall flower arrangements"},
-      "Premium Chocolate Box": {"price": 18.5, "description": "24-piece assorted Belgian chocolates including dark chocolate truffles, milk chocolate pralines, and white chocolate ganache"},
-      "Heart-Shaped Chocolates": {"price": 12.99, "description": "16 heart-shaped milk and dark chocolates with raspberry, caramel, and hazelnut fillings in a red velvet box"},
-      "Handwritten Message Card": {"price": 4.99, "description": "Personalized handwritten message on premium cardstock with calligraphy pen, includes matching envelope"},
-      "Luxury Greeting Card": {"price": 7.5, "description": "Embossed greeting card with gold foil accents, blank inside for personal message, includes luxury envelope with wax seal"},
-      "Romance Combo": {"price": 65.99, "description": "Complete romantic package: dozen red roses in crystal vase, 24-piece Belgian chocolate box, luxury greeting card, and scented candle"},
-      "Spring Special": {"price": 38.75, "description": "Spring celebration set: mixed spring flower bouquet in ceramic vase, heart-shaped chocolates, and handwritten message card"},
-      "Garden Delight": {"price": 42.5, "description": "Garden-themed bundle: lily arrangement in elegant tall vase, premium chocolate box, and luxury greeting card with botanical design"},
-      "Sweet Surprise": {"price": 28.99, "description": "Sweet treat combination: tulip bouquet in ceramic vase, heart-shaped chocolates, and handwritten message card"},
-      "Ultimate Birthday Gift Set": {"price": 89.99, "description": "Deluxe birthday package: dozen red roses in crystal vase, mixed spring flowers, 24-piece Belgian chocolates, luxury greeting card, and decorative gift wrapping"}
-    },
-   "inventory": {
-      "Dozen Red Roses": 50,
-      "Tulip Bouquet": 50,
-      "Lily Arrangement": 50,
-      "Sunflower Bundle": 50,
-      "Mixed Spring Flowers": 50,
-      "Crystal Glass Vase": 50,
-      "Ceramic Garden Vase": 50,
-      "Elegant Tall Vase": 50,
-      "Premium Chocolate Box": 50,
-      "Heart-Shaped Chocolates": 50,
-      "Handwritten Message Card": 50,
-      "Luxury Greeting Card": 50,
-      "Romance Combo": 50,
-      "Spring Special": 50,
-      "Garden Delight": 50,
-      "Sweet Surprise": 50,
-      "Ultimate Birthday Gift Set": 50
-    }
+  "menu": {
+    "Dozen Red Roses": {"price": 45.99, "description": "12 premium red roses (Rosa rubiginosa) with long stems, beautifully arranged in a crystal glass vase with baby's breath and greenery"},
+    "Tulip Bouquet": {"price": 24.5, "description": "8 vibrant Dutch tulips (Tulipa gesneriana) in mixed colors - red, yellow, and pink - arranged in a ceramic garden vase with decorative ribbon"},
+    "Crystal Glass Vase": {"price": 22.99, "description": "Hand-blown crystal glass vase, 12 inches tall with diamond-cut pattern, perfect for long-stemmed flowers"},
+    "Ceramic Garden Vase": {"price": 16.5, "description": "Handcrafted ceramic vase with earth-tone glaze, 8 inches tall, ideal for medium-sized bouquets"},
+    "Premium Chocolate Box": {"price": 18.5, "description": "24-piece assorted Belgian chocolates including dark chocolate truffles, milk chocolate pralines, and white chocolate ganache"},
+    "Heart-Shaped Chocolates": {"price": 12.99, "description": "16 heart-shaped milk and dark chocolates with raspberry, caramel, and hazelnut fillings in a red velvet box"},
+    "Handwritten Message Card": {"price": 4.99, "description": "Personalized handwritten message on premium cardstock with calligraphy pen, includes matching envelope"},
+    "Luxury Greeting Card": {"price": 7.5, "description": "Embossed greeting card with gold foil accents, blank inside for personal message, includes luxury envelope with wax seal"}
+  },
+ "inventory": {
+    "Dozen Red Roses": 50,
+    "Tulip Bouquet": 50,
+    "Crystal Glass Vase": 50,
+    "Ceramic Garden Vase": 50,
+    "Premium Chocolate Box": 50,
+    "Heart-Shaped Chocolates": 50,
+    "Handwritten Message Card": 50,
+    "Luxury Greeting Card": 50
   }
+}

@@ -22,6 +22,7 @@ from pipecat.frames.frames import (
     UserStoppedSpeakingFrame,
 )
 from pipecat.tests.utils import SleepFrame
+from pipecat.utils.text.base_text_aggregator import AggregationType
 from pipecat.utils.time import time_now_iso8601
 
 from nvidia_pipecat.frames.transcripts import (
@@ -116,10 +117,10 @@ async def test_user_transcript_synchronization_processor():
 
 
 @pytest.mark.asyncio()
-async def test_bot_transcript_synchronization_processor_with_riva_tts():
-    """Test the BotTranscriptSynchronization processor with Riva TTS.
+async def test_bot_transcript_synchronization_processor_with_nemotron_speech_tts():
+    """Test the BotTranscriptSynchronization processor with Nemotron Speech TTS.
 
-    Tests the synchronization of bot transcripts when using Riva TTS,
+    Tests the synchronization of bot transcripts when using Nemotron Speech TTS,
     including speech events and interruption handling.
 
     The test verifies:
@@ -131,9 +132,9 @@ async def test_bot_transcript_synchronization_processor_with_riva_tts():
         - Multiple sentence handling
     """
     tts_text_frames = [
-        TTSTextFrame("Welcome user!"),
-        TTSTextFrame("How are you?"),
-        TTSTextFrame("Did you have a nice day?"),
+        TTSTextFrame("Welcome user!", aggregated_by=AggregationType.SENTENCE),
+        TTSTextFrame("How are you?", aggregated_by=AggregationType.SENTENCE),
+        TTSTextFrame("Did you have a nice day?", aggregated_by=AggregationType.SENTENCE),
     ]
 
     frames_to_send = [
@@ -218,11 +219,11 @@ async def test_bot_transcript_synchronization_processor_with_elevenlabs_tts():
         - Complete transcript assembly
     """
     tts_text_frames = [
-        TTSTextFrame("Welcome"),
-        TTSTextFrame("user!"),
-        TTSTextFrame("How"),
-        TTSTextFrame("are"),
-        TTSTextFrame("you?"),
+        TTSTextFrame("Welcome", aggregated_by=AggregationType.SENTENCE),
+        TTSTextFrame("user!", aggregated_by=AggregationType.SENTENCE),
+        TTSTextFrame("How", aggregated_by=AggregationType.SENTENCE),
+        TTSTextFrame("are", aggregated_by=AggregationType.SENTENCE),
+        TTSTextFrame("you?", aggregated_by=AggregationType.SENTENCE),
     ]
 
     frames_to_send = [

@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD 2-Clause License
 
-"""ACE Websocket Serializer Implementation.
+"""NVIDIA WebSocket Serializer Implementation.
 
-This module defines the `ACEWebSocketSerializer` class, which is responsible for
+This module defines the `NvidiaWebsocketSerializer` class, which is responsible for
 serializing and deserializing frames for WebSocket communication in a speech-based
 user interface. The serializer supports various frame types related to audio, text-to-speech (TTS),
 and automatic speech recognition (ASR).
@@ -23,6 +23,7 @@ import io
 import json
 import wave
 
+from loguru import logger
 from pipecat.frames.frames import (
     AudioRawFrame,
     BotStoppedSpeakingFrame,
@@ -42,8 +43,8 @@ from nvidia_pipecat.frames.transcripts import (
 )
 
 
-class ACEWebSocketSerializer(FrameSerializer):
-    """Serializes frames for WebSocket communication in speech interface.
+class NvidiaWebsocketSerializer(FrameSerializer):
+    """Serializes frames for WebSocket communication in NVIDIA speech interface.
 
     This class provides methods to serialize and deserialize frames for communication
     between the server and a speech-based UI. It supports both binary audio data
@@ -87,18 +88,19 @@ class ACEWebSocketSerializer(FrameSerializer):
                 - JSON string for transcript updates
                 - None for unsupported frames
         """
-        message = None
         if isinstance(frame, AudioRawFrame):
             return frame.audio
+
+        message = None
         if isinstance(frame, BotUpdatedSpeakingTranscriptFrame):
             message = {"type": "tts_update", "tts": frame.transcript}
-        if isinstance(frame, BotStoppedSpeakingFrame):
+        elif isinstance(frame, BotStoppedSpeakingFrame):
             message = {"type": "tts_end"}
-        if isinstance(frame, UserUpdatedSpeakingTranscriptFrame):
+        elif isinstance(frame, UserUpdatedSpeakingTranscriptFrame):
             message = {"type": "asr_update", "asr": frame.transcript}
-        if isinstance(frame, UserStoppedSpeakingTranscriptFrame):
+        elif isinstance(frame, UserStoppedSpeakingTranscriptFrame):
             message = {"type": "asr_end", "asr": frame.transcript}
-        if isinstance(frame, RivaVoicesFrame):
+        elif isinstance(frame, RivaVoicesFrame):
             message = {
                 "type": "riva_voices",
                 "available_voices": frame.available_voices,
@@ -122,7 +124,16 @@ class ACEWebSocketSerializer(FrameSerializer):
             Frame | None: The deserialized frame as an InputAudioRawFrame for audio data,
                 or None for unsupported data types.
         """
-        if isinstance(data, bytes):
+        if not isinstance(data, bytes):
+            return None
+
+        try:
             with io.BytesIO(data) as buffer, wave.open(buffer, "rb") as wf:
-                return InputAudioRawFrame(wf.readframes(wf.getnframes()), wf.getframerate(), wf.getnchannels())
-        return None
+                return InputAudioRawFrame(
+                    wf.readframes(wf.getnframes()),
+                    wf.getframerate(),
+                    wf.getnchannels(),
+                )
+        except (wave.Error, EOFError) as e:
+            logger.error(f"Failed to deserialize audio data: {e}")
+            return None

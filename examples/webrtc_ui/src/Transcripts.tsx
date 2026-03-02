@@ -1,9 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 // SPDX-License-Identifier: BSD 2-Clause License
 
-import { useEffect, useRef } from "react";
-
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface Props {
   dataChannel: RTCDataChannel | null;
@@ -29,7 +27,7 @@ export function Transcripts(props: Props) {
   const [transcripts, setTranscripts] = useState<AugmentedMessage[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Clear transcripts when a new WebSocket connection is established
+  // Clear transcripts when a new connection is established
   useEffect(() => {
     if (props.dataChannel) {
       console.log("New DataChannel connection detected, clearing old transcripts");

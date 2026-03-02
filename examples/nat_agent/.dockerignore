@@ -1,0 +1,27 @@
+# Virtual environments
+.env
+.venv/
+**/.venv/
+venv/
+**/venv/
+
+# Logs
+*.log
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Project specific
+audio_dumps/
+asr_cache/
+tts_cache/
+llm_cache/
+nim_cache/
+result*
+.ruff_cache/
+riva_quickstart_*

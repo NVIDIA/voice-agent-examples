@@ -1,16 +1,16 @@
 # Voice Agent Examples
 
-NVIDIA Pipecat provides a flexible framework for building real-time voice AI applications. These examples demonstrate various implementation patterns, ranging from simple LLM-based conversations to complex agentic workflows, and from WebSocket-based solutions to advanced WebRTC implementations with real-time capabilities. All examples leverage NVIDIA services including [Riva ASR](https://build.nvidia.com/nvidia/parakeet-ctc-1_1b-asr), [Riva TTS](https://build.nvidia.com/nvidia/magpie-tts-multilingual), [LLM NIMs](https://build.nvidia.com/models), [NAT (NeMo Agent Toolkit)](https://github.com/NVIDIA/NeMo-Agent-Toolkit), and [Foundational RAG](https://github.com/NVIDIA-AI-Blueprints/rag).
+NVIDIA Pipecat provides a flexible framework for building real-time voice AI applications. These examples demonstrate various implementation patterns, ranging from simple LLM-based conversations to complex agentic workflows, and from WebSocket-based solutions to advanced WebRTC implementations with real-time capabilities. All examples leverage NVIDIA services including [Nemotron Speech ASR Parakeet](https://build.nvidia.com/nvidia/parakeet-ctc-1_1b-asr), [Nemotron Speech TTS Magpie](https://build.nvidia.com/nvidia/magpie-tts-multilingual), [LLM NIMs](https://build.nvidia.com/models), [NAT (NeMo Agent Toolkit)](https://github.com/NVIDIA/NeMo-Agent-Toolkit), and [Foundational RAG](https://github.com/NVIDIA-AI-Blueprints/rag).
 
 Each example includes detailed setup instructions, configuration options, and deployment guides. We recommend starting with the Voice Agent WebSocket example for a simple introduction, then progressing to WebRTC-based examples for production use cases.
 
 ## Voice Agent WebSocket
 
-A straightforward voice agent pipeline built on WebSocket-based ACETransport, ideal for getting started with voice AI applications.
+A straightforward voice agent pipeline built on Pipecat's FastAPI WebSocket transport, ideal for getting started with voice AI applications.
 
 **Key Features:**
 - Simple WebSocket-based communication
-- Integration with Riva ASR and TTS models
+- Integration with Nemotron Speech ASR and TTS models
 - NVIDIA LLM Service support
 - Flexible deployment via Docker or Python
 - Quick setup and easy configuration
@@ -26,10 +26,12 @@ A production-grade, real-time voice assistant with live transcript capabilities 
 - FastAPI backend with React frontend
 - Live transcript display in the UI
 - Dynamic prompt configuration and TTS voice selection via UI
-- Riva ASR and TTS integration
+- Nemotron Speech ASR and TTS integration
 - NVIDIA LLM Service support
 - Coturn server support for cloud deployments
 - Flexible deployment via Docker or Python
+- Support for multilingual ASR and TTS models
+- Jetson deployment support with optimized configurations
 
 [View example →](./voice_agent_webrtc/README.md)
 
@@ -57,7 +59,7 @@ An agentic healthcare front desk can assist patients and healthcare professional
 - Agentic AI for intelligent patient interactions
 - NVIDIA Nemo Guardrails for safety to agent's interactions
 - Built on [WebRTC Voice Agent](./voice_agent_webrtc/README.md) foundation
-- Riva ASR and TTS with speculative speech processing
+- Nemotron Speech ASR and TTS with speculative speech processing
 - Comprehensive patient information collection workflows
 
 Source code can be found at [NVIDIA-AI-Blueprints/ambient-patient](https://github.com/NVIDIA-AI-Blueprints/ambient-patient) GitHub Repository. Same repository includes an appointment making agent, medication information agent, and a full agent that combines the 3 specialized agents.

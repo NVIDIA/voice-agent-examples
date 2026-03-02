@@ -7,6 +7,7 @@ Building production-grade voice agents requires careful consideration of multipl
 
 - **Latency**: Time from user speech end to bot response start (target: 600-1500ms)
 - **Accuracy**: ASR word error rate (WER), factual correctness, LLM generation quality etc.
+- **Scalability**: Concurrent streams supported without audio glitches or performance degradation, all models scale independently
 - **Availability**: System uptime and fault tolerance (target: 99.9%+)
 - **User Satisfaction**: Task completion rate and user feedback scores
 
@@ -43,7 +44,7 @@ For optimizing latency, first we need to measure e2e and component wise latency.
 - **Contribution**: 200-500ms (end of speech detection)
 - **Optimization**: 
   - Use streaming VAD with shorter silence thresholds
-  - Explore shorter EOU detection with Riva ASR and open-source smart turn detection models
+  - Explore shorter EOU detection with Nemotron Speech ASR and open-source smart turn detection models
   - Implement adaptive VAD sensitivity based on environment noise
 
 **Audio Buffering:**
@@ -52,13 +53,15 @@ For optimizing latency, first we need to measure e2e and component wise latency.
   - Use lower latency audio codecs (Opus at 20ms frames)
   - Minimize audio buffer sizes while maintaining quality
   - Implement jitter buffers for network variations
+- **Scaling Audio Output for Concurrency:**  
+  When scaling to multiple concurrent audio streams using either FastAPI WebSocket transport or WebRTC transport, consider increasing the output audio chunk size using the `audio_out_10ms_chunks` parameter up to 400ms to reduce audio glitches and enable smoother playback.
 
 ### 2.2 ASR (Automatic Speech Recognition) Latency
 
 **Model Processing:**
-- **Contribution**: 50-100 ms for Riva ASR
+- **Contribution**: 50-100 ms for Nemotron Speech ASR
 - **Optimization**:
-  - Prefer deploying Riva ASR NIM locally
+  - Prefer deploying Nemotron Speech ASR NIM locally
   - Utilize latest GPU hardware and optimized models
   - Maintain consistent latency performance when handling multiple concurrent requests
   - Use streaming ASR with interim results for early processing
@@ -85,8 +88,9 @@ For optimizing latency, first we need to measure e2e and component wise latency.
 - **Contribution**: 150-300ms for first audio chunk
 - **Optimization**:
   - **Streaming TTS**: Start playback before full synthesis
-  - **Local Riva TTS**: 150-200ms with TRT optimized Magpie model
+  - **Local Nemotron Speech TTS**: 150-200ms with TRT optimized Magpie model
   - **Chunked Generation**: Process sentences as they're generated
+  - **Batch Size**: Increasing the Magpie model batch size (e.g., to 64) can significantly boost throughput for high-volume or concurrent workloads.
 
 **Audio Post-processing:**
 - **Contribution**: 50-100ms (normalization, encoding)
@@ -186,7 +190,7 @@ update profile, set alerts, or lock your card. What would you like?"
 - Use inverse text normalization (ITN) for proper formatting
 - Make sure user audio quality is good
 - Avoid resampling if possible
-- Riva ASR models are robust to noise, skip noise processing 
+- Nemotron Speech ASR models are robust to noise, skip noise processing 
 - Base critical decisions on final transcripts only
 - Finetune ASR model on domain data if needed
 

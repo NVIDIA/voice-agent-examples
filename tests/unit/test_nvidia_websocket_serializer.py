@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD 2-Clause License
 
-"""Unit tests for the ACEWebSocketSerializer class.
+"""Unit tests for the NvidiaWebsocketSerializer class.
 
-This module contains unit tests for the `ACEWebSocketSerializer` class, which is responsible
+This module contains unit tests for the `NvidiaWebsocketSerializer` class, which is responsible
 for serializing and deserializing frames for WebSocket communication in a speech-based user interface.
 The tests cover various frame types related to audio, text-to-speech (TTS), and automatic speech recognition (ASR).
 
@@ -27,17 +27,17 @@ from nvidia_pipecat.frames.transcripts import (
     UserStoppedSpeakingTranscriptFrame,
     UserUpdatedSpeakingTranscriptFrame,
 )
-from nvidia_pipecat.serializers.ace_websocket import ACEWebSocketSerializer
+from nvidia_pipecat.serializers.nvidia_websocket_serializer import NvidiaWebsocketSerializer
 
 
 @pytest.fixture
 def serializer():
-    """Fixture to create an instance of ACEWebSocketSerializer.
+    """Fixture to create an instance of NvidiaWebsocketSerializer.
 
     Returns:
-        ACEWebSocketSerializer: A fresh instance of the serializer for each test.
+        NvidiaWebsocketSerializer: A fresh instance of the serializer for each test.
     """
-    return ACEWebSocketSerializer()
+    return NvidiaWebsocketSerializer()
 
 
 @pytest.mark.asyncio
@@ -48,7 +48,7 @@ async def test_serialize_bot_updated_speaking_frame(serializer):
     it produces the correct JSON format with 'tts_update' type and the transcript.
 
     Args:
-        serializer: The ACEWebSocketSerializer fixture.
+        serializer: The NvidiaWebsocketSerializer fixture.
     """
     frame = BotUpdatedSpeakingTranscriptFrame(transcript="test_transcript")
     result = await serializer.serialize(frame)
@@ -64,7 +64,7 @@ async def test_serialize_bot_stopped_speaking_frame(serializer):
     it produces the correct JSON format with 'tts_end' type.
 
     Args:
-        serializer: The ACEWebSocketSerializer fixture.
+        serializer: The NvidiaWebsocketSerializer fixture.
     """
     frame = BotStoppedSpeakingFrame()
     result = await serializer.serialize(frame)
@@ -80,7 +80,7 @@ async def test_serialize_user_started_speaking_frame(serializer):
     it produces the correct JSON format with 'asr_update' type and the transcript.
 
     Args:
-        serializer: The ACEWebSocketSerializer fixture.
+        serializer: The NvidiaWebsocketSerializer fixture.
     """
     frame = UserUpdatedSpeakingTranscriptFrame(transcript="test_transcript")
     result = await serializer.serialize(frame)
@@ -96,7 +96,7 @@ async def test_serialize_user_stopped_speaking_frame(serializer):
     it produces the correct JSON format with 'asr_end' type and the transcript.
 
     Args:
-        serializer: The ACEWebSocketSerializer fixture.
+        serializer: The NvidiaWebsocketSerializer fixture.
     """
     frame = UserStoppedSpeakingTranscriptFrame(transcript="test_asr_transcript")
     result = await serializer.serialize(frame)
@@ -112,7 +112,7 @@ async def test_serialize_audio_raw_frame(serializer):
     it returns the raw audio bytes without any modification.
 
     Args:
-        serializer: The ACEWebSocketSerializer fixture.
+        serializer: The NvidiaWebsocketSerializer fixture.
     """
     frame = AudioRawFrame(audio=b"\xa2", sample_rate=16000, num_channels=1)
     result = await serializer.serialize(frame)
@@ -128,7 +128,7 @@ async def test_serialize_none(serializer):
     the serializer returns None instead of raising an error.
 
     Args:
-        serializer: The ACEWebSocketSerializer fixture.
+        serializer: The NvidiaWebsocketSerializer fixture.
     """
     frame = Frame()
     result = await serializer.serialize(frame)

@@ -156,7 +156,7 @@ class FinishedActionFrame(ControlFrame, ActionFrame):
 class StartedPresenceUserActionFrame(StartedActionFrame, UserActionFrame, SystemFrame):
     """The interactive system detects the presence of a user in the system.
 
-    TODO: We inherit from SystemFrame to circumvent the frame deletion issue with StartInterruptionFrame.
+    TODO: We inherit from SystemFrame to circumvent the frame deletion issue with InterruptionFrame.
     This is a temporary fix only and needs to be reconsidered once the action concept is properly
     introduced.
     """
@@ -166,7 +166,7 @@ class StartedPresenceUserActionFrame(StartedActionFrame, UserActionFrame, System
 class FinishedPresenceUserActionFrame(FinishedActionFrame, UserActionFrame, SystemFrame):
     """The interactive system detects the user's absence.
 
-    TODO: We inherit from SystemFrame to circumvent the frame deletion issue with StartInterruptionFrame.
+    TODO: We inherit from SystemFrame to circumvent the frame deletion issue with InterruptionFrame.
     This is a temporary fix only and needs to be reconsidered once the action concept is properly
     introduced.
     """

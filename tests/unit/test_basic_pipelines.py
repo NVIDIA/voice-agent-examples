@@ -11,7 +11,7 @@ from pipecat.frames.frames import StartFrame, TextFrame
 from pipecat.processors.aggregators.sentence import SentenceAggregator
 from pipecat.tests.utils import SleepFrame
 
-from nvidia_pipecat.utils.logging import logger_context, setup_default_ace_logging
+from nvidia_pipecat.utils.logging import logger_context, setup_default_logging
 from tests.unit.utils import ignore_ids, run_test
 
 
@@ -55,12 +55,12 @@ async def test_pipeline_with_stream_id():
 
 
 @pytest.mark.asyncio()
-async def test_ace_logger_with_stream_id(capsys):
-    """Test ACE logger behavior when stream_id is provided.
+async def test_logger_with_stream_id(capsys):
+    """Test logger behavior when stream_id is provided.
 
     Verifies that the logger correctly handles and displays stream_id in the logs.
     """
-    setup_default_ace_logging(level="DEBUG")
+    setup_default_logging(level="DEBUG")
     with logger.contextualize(stream_id="1237"):
         aggregator = SentenceAggregator()
         frames_to_send = [TextFrame("Hello, "), TextFrame("world.")]
@@ -106,7 +106,7 @@ async def test_logging_with_multiple_pipelines_in_same_process(capsys):
     Args:
         capsys: Pytest fixture for capturing system output.
     """
-    setup_default_ace_logging(level="TRACE")
+    setup_default_logging(level="TRACE")
 
     streams = ["777", "abc123"]
     tasks = []

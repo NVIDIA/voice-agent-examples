@@ -10,6 +10,7 @@ speech-to-speech communication with agentic support.
 import argparse
 import os
 import sys
+from enum import Enum
 from pathlib import Path
 
 import uvicorn
@@ -18,11 +19,11 @@ from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMMessagesFrame
+from pipecat.frames.frames import LLMMessagesUpdateFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams, FastAPIWebsocketTransport
 
@@ -31,9 +32,19 @@ from nvidia_pipecat.processors.nvidia_context_aggregator import (
     create_nvidia_context_aggregator,
 )
 from nvidia_pipecat.services.nat_agent import NATAgentService
-from nvidia_pipecat.services.riva_speech import RivaASRService, RivaTTSService
+from nvidia_pipecat.services.riva_speech import NemotronASRService, NemotronTTSService
 
 load_dotenv(override=True)
+
+
+class VADProfile(Enum):
+    """VAD Profile options."""
+
+    SILERO = "Silero"  # Transport Silero VAD analyzer
+    ASR = "ASR"  # ASR VAD
+
+
+VAD_PROFILE = VADProfile(os.getenv("VAD_PROFILE", VADProfile.ASR))
 
 app = FastAPI()
 
@@ -50,10 +61,10 @@ async def run_bot(websocket, stream_id):
         audio_in_sample_rate=16000,
         audio_out_sample_rate=16000,
         audio_out_enabled=True,
-        vad_analyzer=SileroVADAnalyzer(),
         audio_out_10ms_chunks=5,
         serializer=ProtobufFrameSerializer(),
         add_wav_header=True,
+        vad_analyzer=SileroVADAnalyzer() if VAD_PROFILE == VADProfile.SILERO else None,
     )
 
     transport = FastAPIWebsocketTransport(
@@ -63,25 +74,30 @@ async def run_bot(websocket, stream_id):
 
     nat_agent = NATAgentService(
         agent_server_url=os.getenv("NAT_AGENT_SERVER_URL", "http://localhost:8000"),
-        config_file=os.getenv("NAT_CONFIG_FILE_PATH", "./config.yml"),
+        config_file=os.getenv(
+            "NAT_CONFIG_FILE_PATH",
+            (Path(__file__).parent / "agent" / "configs" / "config.yml").as_posix(),
+        ),
         session_id=str(stream_id),
         use_shared_session=False,  # Use per-instance sessions for proper user isolation
     )
 
-    stt = RivaASRService(
-        server=os.getenv("RIVA_ASR_URL", "localhost:50051"),
+    stt = NemotronASRService(
+        server=os.getenv("ASR_SERVER_URL", "localhost:50051"),
         api_key=os.getenv("NVIDIA_API_KEY"),
-        language=os.getenv("RIVA_ASR_LANGUAGE", "en-US"),
+        language=os.getenv("ASR_LANGUAGE", "en-US"),
         sample_rate=16000,
-        model=os.getenv("RIVA_ASR_MODEL", "parakeet-1.1b-en-US-asr-streaming-silero-vad-sortformer"),
+        model=os.getenv("ASR_MODEL_NAME", "parakeet-1.1b-en-US-asr-streaming-silero-vad-sortformer"),
+        generate_interruptions=VAD_PROFILE == VADProfile.ASR,
     )
 
-    tts = RivaTTSService(
-        server=os.getenv("RIVA_TTS_URL", "localhost:50051"),
+    tts = NemotronTTSService(
+        server=os.getenv("TTS_SERVER_URL", "localhost:50051"),
         api_key=os.getenv("NVIDIA_API_KEY"),
-        voice_id=os.getenv("RIVA_TTS_VOICE_ID", "Magpie-Multilingual.EN-US.Sofia"),
-        model=os.getenv("RIVA_TTS_MODEL", "magpie_tts_ensemble-Magpie-Multilingual"),
-        language=os.getenv("RIVA_TTS_LANGUAGE", "en-US"),
+        voice_id=os.getenv("TTS_VOICE_ID", "Magpie-Multilingual.EN-US.Sofia"),
+        model=os.getenv("TTS_MODEL_NAME", "magpie_tts_ensemble-Magpie-Multilingual"),
+        language=os.getenv("TTS_LANGUAGE", "en-US"),
+        sample_rate=16000,
         zero_shot_audio_prompt_file=(
             Path(os.getenv("ZERO_SHOT_AUDIO_PROMPT", str(Path(__file__).parent / "model-em_sample-02.wav")))
             if os.getenv("ZERO_SHOT_AUDIO_PROMPT")
@@ -92,7 +108,7 @@ async def run_bot(websocket, stream_id):
     # System prompt not needed for NAT Agent
     messages = []
 
-    context = OpenAILLMContext(messages)
+    context = LLMContext(messages)
 
     # Configure speculative speech processing based on environment variable
     enable_speculative_speech = os.getenv("ENABLE_SPECULATIVE_SPEECH", "true").lower() == "true"
@@ -132,7 +148,7 @@ async def run_bot(websocket, stream_id):
     async def on_client_connected(transport, client):
         # Kick off the conversation.
         messages.append({"role": "system", "content": "Please introduce yourself to the user."})
-        await task.queue_frames([LLMMessagesFrame(messages)])
+        await task.queue_frames([LLMMessagesUpdateFrame(messages=messages, run_llm=True)])
 
     runner = PipelineRunner(handle_sigint=False)
 

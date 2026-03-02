@@ -3,7 +3,7 @@
 
 """NVIDIA RTVI Processors.
 
-This module provides RTVI protocol processors for handling NVIDIA Riva-specific
+This module provides RTVI protocol processors for handling NVIDIA Nemotron Speech ASR and TTS Services specific
 client messages and outputting frames to the client.
 """
 
@@ -14,29 +14,35 @@ from pathlib import Path
 from typing import Any
 
 from loguru import logger
-from pipecat.frames.frames import BotStoppedSpeakingFrame, EndFrame, Frame, LLMMessagesFrame
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
-from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-from pipecat.processors.frameworks.rtvi import RTVIClientMessage, RTVIProcessor
+from pipecat.frames.frames import BotStoppedSpeakingFrame, EndFrame, Frame, LLMMessagesUpdateFrame
+from pipecat.observers.base_observer import FramePushed
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.frame_processor import FrameDirection
+from pipecat.processors.frameworks.rtvi import RTVIClientMessage, RTVIObserver, RTVIProcessor
+from pipecat.transports.smallwebrtc.transport import SmallWebRTCOutputTransport
 from pydantic import BaseModel
 
 from nvidia_pipecat.frames.riva import RivaTTSUpdateSettingsFrame, RivaVoicesFrame
-from nvidia_pipecat.frames.system_prompt import ShowSystemPromptFrame
 from nvidia_pipecat.frames.transcripts import (
     BotUpdatedSpeakingTranscriptFrame,
     UserStoppedSpeakingTranscriptFrame,
     UserUpdatedSpeakingTranscriptFrame,
 )
+from nvidia_pipecat.processors.transcript_synchronization import (
+    BotTranscriptSynchronization,
+    UserTranscriptSynchronization,
+)
+from nvidia_pipecat.services.riva_speech import NemotronTTSService
 
 
 class NvidiaRTVIInput(RTVIProcessor):
     """NVIDIA RTVI Input Processor for handling client messages.
 
-    This processor extends the base RTVIProcessor to handle NVIDIA Riva-specific
+    This processor extends the base RTVIProcessor to handle NVIDIA Nemotron Speech ASR and TTS Services specific
     client messages such as context resets, voice changes, and audio uploads.
 
     Attributes:
-        _context: OpenAILLMContext for this connection.
+        _context: LLMContext for this connection.
         _upload_chunks_map: Tracks chunked uploads in progress.
         _custom_prompts_registry: Registry of custom prompts (prompt_id -> file_path).
     """
@@ -44,7 +50,7 @@ class NvidiaRTVIInput(RTVIProcessor):
     def __init__(
         self,
         *,
-        context: OpenAILLMContext,
+        context: LLMContext,
         **kwargs,
     ):
         """Initialize the NVIDIA RTVI input processor.
@@ -68,8 +74,6 @@ class NvidiaRTVIInput(RTVIProcessor):
 
         if isinstance(frame, EndFrame):
             await self._cleanup()
-
-        await self.push_frame(frame, direction)
 
     async def _cleanup(self):
         """Clean up all state for this connection."""
@@ -127,17 +131,37 @@ class NvidiaRTVIInput(RTVIProcessor):
 
         Args:
             msg: The client message.
-            data: The new system prompt content.
+            data: List of {"role": "...", "content": "..."} message dicts.
         """
-        self._context.set_messages([{"role": "system", "content": data}])
-        logger.info("Context reset")
+        if not isinstance(data, list):
+            await self.send_error_response(msg, "Invalid prompt payload: expected list of {role, content}")
+            return
+
+        messages: list[dict[str, str]] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            role = item.get("role")
+            content = item.get("content")
+            if role not in {"system", "user", "assistant"}:
+                continue
+            if not isinstance(content, str):
+                continue
+            messages.append({"role": role, "content": content})
+
+        if not messages:
+            await self.send_error_response(msg, "Invalid prompt payload")
+            return
+
+        self._context.set_messages(messages)
+        logger.info(f"Context reset with {len(messages)} message(s)")
         await self.send_server_response(msg, {"status": "success"})
 
     async def _handle_begin_conversation(self, msg: RTVIClientMessage):
         """Handle begin conversation messages."""
         messages = self._context.get_messages().copy()
-        messages.append({"role": "system", "content": "Please introduce yourself to the user."})
-        await self.push_frame(LLMMessagesFrame(messages))
+        messages.append({"role": "user", "content": "Please introduce yourself."})
+        await self.push_frame(LLMMessagesUpdateFrame(messages=messages, run_llm=True))
         await self.send_server_response(msg, {"status": "started"})
 
     async def _handle_set_tts_voice(self, msg: RTVIClientMessage, data: Any):
@@ -325,12 +349,12 @@ class Transcript(BaseModel):
     message_id: str
 
 
-class NvidiaRTVIOutput(FrameProcessor):
-    """Forward NVIDIA Riva transcript and TTS config frames to an RTVI server channel.
+class NvidiaRTVIObserver(RTVIObserver):
+    """Forward NVIDIA Nemotron Speech ASR and TTS Services transcript and TTS config frames to an RTVI server channel.
 
     Aggregates incremental bot transcripts so the UI receives the full text
     so far, and assigns stable message ids per speaking turn for both user and
-    bot to make UI-side synchronization straightforward. Also forwards Riva TTS
+    bot to make UI-side synchronization straightforward. Also forwards Nemotron Speech TTS
     configuration frames for voice listing and current voice.
     """
 
@@ -346,10 +370,14 @@ class NvidiaRTVIOutput(FrameProcessor):
         self._message_id_bot = uuid.uuid4()
         self._last_bot_transcript = ""
 
-    async def process_frame(self, frame: Frame, direction: FrameDirection):
-        """Process the frame and send the transcript to the websocket."""
-        await super().process_frame(frame, direction)
-        if isinstance(frame, BotUpdatedSpeakingTranscriptFrame):
+    async def on_push_frame(self, data: FramePushed):
+        """Process the frame and send the transcript to the rtvi."""
+        await super().on_push_frame(data)
+
+        frame = data.frame
+        if isinstance(frame, BotUpdatedSpeakingTranscriptFrame) and isinstance(
+            data.source, BotTranscriptSynchronization
+        ):
             if self._last_bot_transcript != frame.transcript:
                 self._last_bot_transcript += " " + frame.transcript
             if self._rtvi is not None:
@@ -358,17 +386,23 @@ class NvidiaRTVIOutput(FrameProcessor):
                         text=self._last_bot_transcript, actor="bot", message_id=str(self._message_id_bot)
                     ).model_dump_json()
                 )
-        elif isinstance(frame, BotStoppedSpeakingFrame):
+        elif isinstance(frame, BotStoppedSpeakingFrame) and isinstance(data.source, SmallWebRTCOutputTransport):
             self._message_id_bot = uuid.uuid4()
             self._last_bot_transcript = ""
-        elif isinstance(frame, UserUpdatedSpeakingTranscriptFrame):
+
+        elif isinstance(frame, UserUpdatedSpeakingTranscriptFrame) and isinstance(
+            data.source, UserTranscriptSynchronization
+        ):
             if self._rtvi is not None:
                 await self._rtvi.send_server_message(
                     Transcript(
                         text=frame.transcript, actor="user", message_id=str(self._message_id_user)
                     ).model_dump_json()
                 )
-        elif isinstance(frame, UserStoppedSpeakingTranscriptFrame):
+
+        elif isinstance(frame, UserStoppedSpeakingTranscriptFrame) and isinstance(
+            data.source, UserTranscriptSynchronization
+        ):
             if self._rtvi is not None:
                 await self._rtvi.send_server_message(
                     Transcript(
@@ -376,9 +410,9 @@ class NvidiaRTVIOutput(FrameProcessor):
                     ).model_dump_json()
                 )
             self._message_id_user = uuid.uuid4()
-        elif isinstance(frame, RivaVoicesFrame):
+
+        elif isinstance(frame, RivaVoicesFrame) and isinstance(data.source, NemotronTTSService):
             if self._rtvi is not None:
-                # Send consolidated voice information
                 await self._rtvi.send_server_message(
                     json.dumps(
                         {
@@ -390,7 +424,15 @@ class NvidiaRTVIOutput(FrameProcessor):
                         }
                     )
                 )
-        elif isinstance(frame, ShowSystemPromptFrame):
+        elif isinstance(frame, RivaTTSUpdateSettingsFrame) and isinstance(data.source, NemotronTTSService):
             if self._rtvi is not None:
-                await self._rtvi.send_server_message(json.dumps({"type": "system_prompt", "prompt": frame.prompt}))
-        await super().push_frame(frame, direction)
+                await self._rtvi.send_server_message(
+                    json.dumps(
+                        {
+                            "type": "tts_update_settings",
+                            "voice_type": frame.voice_type,
+                            "voice_id": frame.identifier,
+                            "language_code": frame.language_code,
+                        }
+                    )
+                )

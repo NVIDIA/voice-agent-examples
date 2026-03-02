@@ -1,13 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD 2-Clause License
 
-"""Riva frames for Interim Transcription.
+"""Frames for Nemotron Speech ASR and TTS Services.
 
-This module provides frame definitions for NVIDIA Riva's speech-to-text functionality,
+This module provides frame definitions for NVIDIA Nemotron Speech ASR and TTS Services,
 specifically focused on interim transcription handling.
 
 Classes:
     RivaInterimTranscriptionFrame: Frame for interim transcription results with stability metrics
+    RivaFetchVoicesFrame: Frame to request TTS service to provide voice information
+    RivaVoicesFrame: Frame carrying comprehensive voice information from Nemotron Speech TTS
+    RivaTTSUpdateSettingsFrame: Frame to update Nemotron Speech TTS voice settings
 """
 
 from dataclasses import dataclass
@@ -18,9 +21,9 @@ from pipecat.frames.frames import ControlFrame, DataFrame, InterimTranscriptionF
 
 @dataclass
 class RivaInterimTranscriptionFrame(InterimTranscriptionFrame):
-    """An interim transcription frame with stability metrics from Riva.
+    """An interim transcription frame with stability metrics from Nemotron Speech ASR.
 
-    Extends the base InterimTranscriptionFrame to include Riva-specific stability
+    Extends the base InterimTranscriptionFrame to include stability
     scoring for speculative speech processing. These frames are generated during
     active speech and help determine when to trigger early response generation.
 
@@ -81,7 +84,7 @@ class RivaFetchVoicesFrame(ControlFrame):
 
 @dataclass
 class RivaVoicesFrame(DataFrame):
-    """Data frame carrying comprehensive voice information from Riva TTS.
+    """Data frame carrying comprehensive voice information from Nemotron Speech TTS.
 
     Consolidates available voices, current selection, and custom audio prompt status
     into a single frame to reduce communication overhead and simplify UI updates.
@@ -104,7 +107,7 @@ class RivaVoicesFrame(DataFrame):
 
 @dataclass
 class RivaTTSUpdateSettingsFrame(ControlFrame):
-    """Control frame to update Riva TTS voice settings.
+    """Control frame to update Nemotron Speech TTS voice settings.
 
     Handles both default voice selection and custom zero-shot voice selection.
 
@@ -112,9 +115,11 @@ class RivaTTSUpdateSettingsFrame(ControlFrame):
         voice_type: Type of voice - "default" for standard voices, "custom" for zero-shot voices
         identifier: For default voices, this is the voice_id (e.g., "English-US.Female-1").
             For custom voices, this is the prompt_id (e.g., "backend" or user-uploaded prompt ID).
+        language_code: Language code for the voice (e.g., "en-US", "de-DE"). Optional.
         custom_prompt_path: Optional path to custom voice prompt file (for custom voice type only).
     """
 
     voice_type: str  # "default" or "custom"
     identifier: str
+    language_code: str = ""
     custom_prompt_path: Path | None = None

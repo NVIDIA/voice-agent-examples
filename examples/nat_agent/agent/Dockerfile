@@ -15,6 +15,7 @@ ENV PYTHONUNBUFFERED=1
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    build-essential \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir --upgrade pip uv
@@ -28,10 +29,10 @@ COPY ./agent/ ./agent/
 WORKDIR /app/agent
 
 # Dependencies
-RUN uv sync --frozen
+RUN uv venv && . .venv/bin/activate && uv sync --frozen && uv pip install -e .
 
 # Port configuration
 EXPOSE 8005
 
 # Start command
-CMD ["uv", "run", "nat", "serve", "--config_file", "/app/agent/configs/config.yml", "--host", "0.0.0.0"]
+CMD ["/app/agent/.venv/bin/python", "-m", "nat.cli.main", "serve", "--config_file", "/app/agent/configs/config.yml", "--host", "0.0.0.0"]

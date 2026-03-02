@@ -5,6 +5,7 @@ result*
 __pycache__/
 .vscode/
 .env
+.env.jetson
 *.wav
 venv/
 riva_quickstart_*
@@ -23,6 +24,9 @@ coverage_report.xml
 # Ignore generated output
 output/
 
+# Ignore BigBench Audio eval datasets (downloaded/generated)
+tools/scripts/AA-BigBenchAudio-eval/datasets/
+
 # Ignore docs
 docs/build/
 
@@ -31,6 +35,12 @@ docs/build/
 
 *.log
 nim_cache/
-riva_cache/
+asr_cache/
+tts_cache/
 llm_cache/
 audio_dumps/
+
+# Ignore local agent skill files
+.cursor/
+.claude/
+

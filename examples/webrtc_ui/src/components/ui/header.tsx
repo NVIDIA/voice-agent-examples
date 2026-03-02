@@ -1,0 +1,8 @@
+export const Header = () => {
+    return (
+        <header className="border-b-1 border-gray-200 p-6 flex items-center">
+            <img src="logo.png" alt="NVIDIA Logo" className="h-16 mr-8" />
+            <h1 className="text-2xl">Voice Agent Demo</h1>
+        </header>
+    );
+};

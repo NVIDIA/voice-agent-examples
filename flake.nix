@@ -47,7 +47,7 @@
         # - https://pyproject-nix.github.io/uv2nix/FAQ.html
         pyprojectOverrides = final: prev: {
           numba = prev.numba.overrideAttrs (old: {
-            buildInputs = (old.buildInputs or []) ++ [pkgs.tbb_2021_11];
+            buildInputs = (old.buildInputs or []) ++ [pkgs.tbb];
           });
           semantic-version = prev.semantic-version.overrideAttrs (old: {
             nativeBuildInputs =
@@ -92,7 +92,6 @@
                 editables = [];
               };
           });
-          rapidfuzz = pkgs.python312Packages.rapidfuzz;
         };
 
         # Use Python 3.12 from nixpkgs

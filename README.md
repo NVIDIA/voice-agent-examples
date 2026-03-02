@@ -1,10 +1,10 @@
-# Riva Voice Agent Examples
+# Nemotron Voice Agent Examples
 
 This repository contains examples demonstrating how to build voice-enabled conversational AI agents using the NVIDIA services, built using [the Pipecat framework](https://github.com/pipecat-ai/pipecat). These examples demonstrate various implementation patterns, ranging from simple LLM-based conversations to complex agentic workflows, and from WebSocket-based solutions to advanced WebRTC implementations with real-time capabilities.
 
 ## Examples Overview
 
--  **[Voice Agent WebSocket](examples/voice_agent_websocket/)** : A simple voice assistant pipeline using WebSocket-based transport. This example demonstrates integration with NVIDIA LLM Service, Riva ASR and TTS NIMS. 
+-  **[Voice Agent WebSocket](examples/voice_agent_websocket/)** : A simple voice assistant pipeline using WebSocket-based transport. This example demonstrates integration with NVIDIA LLM Service, Nemotron Speech ASR and TTS NIMS. 
 - **[Voice Agent WebRTC](examples/voice_agent_webrtc/)** : A more advanced voice agent using WebRTC Transport with real-time transcripts, dynamic prompt configuration and TTS voice selection via UI.
 - **[NAT Agent (NeMo Agent Toolkit)](examples/nat_agent/)** : An end-to-end intelligent voice assistant powered by NeMo Agent Toolkit. The ReWoo agent uses planning-based approach for efficient task decomposition and execution with custom tools for menu browsing, pricing and cart management.
 
@@ -12,7 +12,7 @@ We recommend starting with the Voice Agent WebSocket example for a simple introd
 
 ## NVIDIA Pipecat
 
-The NVIDIA Pipecat library augments [the Pipecat framework](https://github.com/pipecat-ai/pipecat) by adding additional frame processors and NVIDIA services. This includes the integration of NVIDIA services and NIMs such as [Riva ASR](https://build.nvidia.com/nvidia/parakeet-ctc-1_1b-asr), [Riva TTS](https://build.nvidia.com/nvidia/magpie-tts-multilingual), [LLM NIMs](https://build.nvidia.com/models), [NAT (NeMo Agent Toolkit)](https://github.com/NVIDIA/NeMo-Agent-Toolkit), and [Foundational RAG](https://github.com/NVIDIA-AI-Blueprints/rag). It also introduces a few processors with a focus on improving the end-user experience for multimodal conversational agents, along with speculative speech processing to reduce latency for faster bot responses.
+The NVIDIA Pipecat library augments [the Pipecat framework](https://github.com/pipecat-ai/pipecat) by adding additional frame processors and NVIDIA services. This includes the integration of NVIDIA services and NIMs such as [Nemotron Speech ASR Parakeet](https://build.nvidia.com/nvidia/parakeet-ctc-1_1b-asr), [Nemotron Speech TTS Magpie](https://build.nvidia.com/nvidia/magpie-tts-multilingual), [LLM NIMs](https://build.nvidia.com/models), [NAT (NeMo Agent Toolkit)](https://github.com/NVIDIA/NeMo-Agent-Toolkit), and [Foundational RAG](https://github.com/NVIDIA-AI-Blueprints/rag). It also introduces a few processors with a focus on improving the end-user experience for multimodal conversational agents, along with speculative speech processing to reduce latency for faster bot responses.
 
 
 ### Getting Started
@@ -76,6 +76,14 @@ To ensure that all checks such as the formatting and linter for the repository a
 
 ```bash
 nix flake check
+```
+
+## Agent Skills
+
+This repository includes AI agent skills for deployment assistance. Install them for your coding agent with:
+
+```bash
+npx skills add .
 ```
 
 ## Documentation
