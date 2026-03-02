@@ -3,39 +3,33 @@
 
 """NVIDIA LLM service implementation for interacting with NIM (NVIDIA Inference Microservice) API."""
 
+from __future__ import annotations
+
 import json
-import platform
 import time
 
 import httpx
 from loguru import logger
-from openai import AsyncStream
-from openai.types.chat import ChatCompletionChunk, ChatCompletionMessageParam
+from openai.types.chat import ChatCompletionMessageParam
 from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
     Frame,
+    InterruptionFrame,
+    LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
-    LLMMessagesFrame,
+    LLMMessagesUpdateFrame,
     LLMTextFrame,
-    StartInterruptionFrame,
     UserImageRawFrame,
 )
 from pipecat.metrics.metrics import LLMTokenUsage
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext, OpenAILLMContextFrame
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.utils.string import match_endofsentence
 from pipecat.utils.text.base_text_aggregator import BaseTextAggregator
-
-BlingfireTextAggregator = None
-IS_X86 = platform.machine().lower() in ("x86_64", "amd64")
-if IS_X86:
-    try:
-        from nvidia_pipecat.services.blingfire_text_aggregator import BlingfireTextAggregator
-    except ImportError:
-        logger.warning("BlingfireTextAggregator not available on this x86 platform, text aggregation will be disabled")
+from pipecat.utils.tracing.service_decorators import traced_llm
 
 
 class NvidiaLLMService(OpenAILLMService):
@@ -89,6 +83,26 @@ class NvidiaLLMService(OpenAILLMService):
         # State for first sentence generation timing
         self._first_sentence_detected = False
         self._first_sentence_start_time = None
+
+    def _raise_llm_error(self, err: Exception) -> None:
+        """Re-raise with a clear message when the error is due to endpoint/model config."""
+        msg = str(err).lower()
+        hint = "Check NVIDIA_LLM_URL, NVIDIA_LLM_MODEL, and NVIDIA_API_KEY."
+        if isinstance(err, httpx.HTTPStatusError):
+            if err.response.status_code == 404:
+                raise ValueError(f"Nvidia LLM returned 404 (wrong URL or model). {hint}") from err
+            if err.response.status_code == 401:
+                raise ValueError(f"Nvidia LLM returned 401 (bad API key). {hint}") from err
+            raise ValueError(f"Nvidia LLM returned HTTP {err.response.status_code}. {hint}") from err
+        if isinstance(err, (httpx.ConnectError, httpx.ConnectTimeout, httpx.TimeoutException)):
+            raise ValueError(f"Cannot connect to Nvidia LLM. {hint}") from err
+        if "404" in msg or "not found" in msg:
+            raise ValueError(f"Nvidia LLM 404 or model not found. {hint}") from err
+        if "401" in msg or "unauthorized" in msg:
+            raise ValueError(f"Nvidia LLM 401 (bad API key). {hint}") from err
+        if "connection" in msg or "connect" in msg or "refused" in msg:
+            raise ValueError(f"Cannot connect to Nvidia LLM. {hint}") from err
+        raise err
 
     def _reset_think_filter_state(self):
         """Reset the state variables used for think token filtering."""
@@ -148,7 +162,7 @@ class NvidiaLLMService(OpenAILLMService):
 
         return processed_messages
 
-    async def _process_context(self, context: OpenAILLMContext):
+    async def _process_context(self, context: LLMContext):
         """Process a context through the LLM and accumulate token usage metrics.
 
         This method overrides the parent class implementation to handle NVIDIA's
@@ -162,20 +176,21 @@ class NvidiaLLMService(OpenAILLMService):
 
 
         Args:
-            context (OpenAILLMContext): The context to process, containing messages
+            context (LLMContext): The context to process, containing messages
                 and other information needed for the LLM interaction.
         """
         # Apply Mistral model preprocessing to ensure compatibility
-        if self._mistral_model_support and context.messages:
+        if self._mistral_model_support:
             original_messages = context.get_messages()
-            processed_messages = self._preprocess_messages_for_mistral(original_messages)
+            if original_messages:
+                processed_messages = self._preprocess_messages_for_mistral(original_messages)
 
-            # Skip processing if the last (or only) message is a system message
-            if processed_messages[-1].get("role") == "system":
-                logger.debug("Only system message is provided in the context, so skipping the LLM call.")
-                return
+                # Skip processing if the last (or only) message is a system message
+                if processed_messages[-1].get("role") == "system":
+                    logger.debug("Only system message is provided in the context, so skipping the LLM call.")
+                    return
 
-            context.set_messages(processed_messages)
+                context.set_messages(processed_messages)
 
         # Reset all counters and flags at the start of processing
         self._prompt_tokens = 0
@@ -198,12 +213,7 @@ class NvidiaLLMService(OpenAILLMService):
 
         try:
             await self.start_ttfb_metrics()
-
-            # Pipecat 0.0.85 provides specific/universal streaming methods
-            # Use the specific OpenAI context variant here
-            chunk_stream: AsyncStream[ChatCompletionChunk] = await self._stream_chat_completions_specific_context(
-                context
-            )
+            chunk_stream = await self._stream_chat_completions_universal_context(context)
 
             async for chunk in chunk_stream:
                 if chunk.usage:
@@ -263,15 +273,8 @@ class NvidiaLLMService(OpenAILLMService):
                                 end_of_sentence_pos = match_endofsentence(content)
                                 if end_of_sentence_pos > 0:
                                     self._first_sentence_detected = True
-                            elif BlingfireTextAggregator and isinstance(self._text_aggregator, BlingfireTextAggregator):
-                                # Blingfire's aggregate() which returns a complete sentence ONLY when
-                                # it detects multiple sentences (i.e., when it sees the start of the 2nd sentence)
-                                # This ensures we're measuring when the FIRST sentence is truly complete
-                                complete_sentence = await self._text_aggregator.aggregate(content)
-                                if complete_sentence:
-                                    self._first_sentence_detected = True
 
-                            if self._first_sentence_detected:
+                            if self._first_sentence_detected and self._first_sentence_start_time is not None:
                                 first_sentence_time = time.time() - self._first_sentence_start_time
                                 logger.debug(f"{self} LLM first sentence generation time: {first_sentence_time:.3f}")
 
@@ -310,6 +313,8 @@ class NvidiaLLMService(OpenAILLMService):
                             f"The LLM tried to call a function named '{function_name}', "
                             f"but there isn't a callback registered for that function."
                         )
+        except Exception as e:
+            self._raise_llm_error(e)
         finally:
             self._is_processing = False
             # Report final accumulated token usage at the end of processing
@@ -408,7 +413,8 @@ class NvidiaLLMService(OpenAILLMService):
         if tokens.completion_tokens > self._completion_tokens:
             self._completion_tokens = tokens.completion_tokens
 
-    async def _process_context_and_frames(self, context: OpenAILLMContext):
+    @traced_llm
+    async def _process_context_and_frames(self, context: LLMContext):
         """Process context and handle start/end frames with metrics."""
         try:
             await self.push_frame(LLMFullResponseStartFrame())
@@ -424,29 +430,33 @@ class NvidiaLLMService(OpenAILLMService):
 
             # Fallback: if first sentence was never detected during streaming (single-sentence response),
             # the first sentence time equals the full processing time
-            if not self._filter_think_tokens and not self._first_sentence_detected:
+            if (
+                not self._filter_think_tokens
+                and not self._first_sentence_detected
+                and self._first_sentence_start_time is not None
+            ):
                 processing_time = time.time() - self._first_sentence_start_time
                 logger.debug(f"{self} LLM first sentence generation time: {processing_time:.3f}")
 
             await self.push_frame(LLMFullResponseEndFrame())
-        return
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         """Process an incoming frame in the specified direction."""
         context = None
-        if isinstance(frame, OpenAILLMContextFrame):
-            context: OpenAILLMContext = frame.context
-        elif isinstance(frame, LLMMessagesFrame):
-            context = OpenAILLMContext.from_messages(frame.messages)
+        if LLMContextFrame is not None and isinstance(frame, LLMContextFrame):
+            context: LLMContext = frame.context
+        elif isinstance(frame, LLMMessagesUpdateFrame):
+            context = LLMContext(messages=frame.messages)
         elif isinstance(frame, UserImageRawFrame):
-            context = OpenAILLMContext()
-            context.add_image_frame_message(
+            image_msg = await LLMContext.create_image_message(
+                role="user",
                 format=frame.format,
                 size=frame.size,
                 image=frame.image,
                 text=getattr(frame, "text", None),
             )
-        elif isinstance(frame, StartInterruptionFrame):
+            context = LLMContext(messages=[image_msg])
+        elif isinstance(frame, InterruptionFrame):
             await self._start_interruption()
             await self.stop_all_metrics()
             await self.push_frame(frame, direction)
@@ -454,6 +464,7 @@ class NvidiaLLMService(OpenAILLMService):
                 await self.cancel_task(self._current_task)
                 self._current_task = None
         else:
+            # All other frames are processed by the base llm service
             await super().process_frame(frame, direction)
 
         if context:

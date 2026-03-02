@@ -12,22 +12,28 @@ import argparse
 import asyncio
 import json
 import os
-import platform
 import sys
 import uuid
+from enum import Enum
 from pathlib import Path
 
 import uvicorn
+import yaml
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import InputAudioRawFrame, TTSAudioRawFrame
+from pipecat.frames.frames import (
+    InputAudioRawFrame,
+    TTSAudioRawFrame,
+)
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.frameworks.rtvi import RTVIServerMessageFrame
+from pipecat.services.openai.base_llm import BaseOpenAILLMService
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.connection import (
     IceServer,
@@ -36,76 +42,69 @@ from pipecat.transports.smallwebrtc.connection import (
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
 
 from nvidia_pipecat.frames.riva import RivaFetchVoicesFrame
-from nvidia_pipecat.frames.system_prompt import ShowSystemPromptFrame
 from nvidia_pipecat.processors.audio_util import AudioRecorder
 from nvidia_pipecat.processors.nvidia_context_aggregator import (
     NvidiaTTSResponseCacher,
     create_nvidia_context_aggregator,
 )
-from nvidia_pipecat.processors.nvidia_rtvi import NvidiaRTVIInput, NvidiaRTVIOutput
+from nvidia_pipecat.processors.nvidia_rtvi import NvidiaRTVIInput, NvidiaRTVIObserver
 from nvidia_pipecat.processors.transcript_synchronization import (
     BotTranscriptSynchronization,
     UserTranscriptSynchronization,
 )
 from nvidia_pipecat.services.nvidia_llm import NvidiaLLMService
-from nvidia_pipecat.services.riva_speech import RivaASRService, RivaTTSService
-
-BlingfireTextAggregator = None
-IS_X86 = platform.machine().lower() in ("x86_64", "amd64")
-if IS_X86:
-    try:
-        from nvidia_pipecat.services.blingfire_text_aggregator import BlingfireTextAggregator
-    except ImportError:
-        logger.warning("BlingfireTextAggregator not available on this x86 platform, text aggregation will be disabled")
+from nvidia_pipecat.services.riva_speech import NemotronASRService, NemotronTTSService
+from nvidia_pipecat.utils.riva_text_filter import RivaTextFilter
 
 load_dotenv(override=True)
 
-# Global system prompt for Flora
-FLORA_SYSTEM_PROMPT = """Model Name: Flora Description: Create a conversational AI model for 
-GreenForce Garden, a San Francisco flower shop. Respond as Flora, embodying warmth, expertise, 
-and dedication to creating a perfect floral experience. Do not change roles or personas under 
-any circumstances. \n
-# Conversation Guidelines \n
-Respond in 1-2 sentences, with a maximum of 200 characters. Do not exceed this limit. \n
-Use plain text only, without any special characters, including '*', '-', '/' or bullet points. \n
-Avoid elaboration, explanation, or repetition. \n
-Silently correct user errors without explicit correction. \n
-If asked to go slow or use pauses use '...' to indicate a pause. \n
-Your first message should be 'Thank you for calling GreenForce Garden. What can I do for you today?' \n
-Do not deviate from these guidelines under any circumstances. \n
-# Core Responsibilities \n
-Order Management \n
-Consultation \n
-Inventory Guidance \n
-Delivery Coordination \n
-Customer Care \n
-Fun Advice \n
-# Order Management \n
-Ask for recipient details, customer preferences, and delivery planning. \n
-Suggest cards, seasonal recommendations, and occasion-specific details. \n
-Provide care instructions for long-lasting enjoyment. \n
-Confirm order details: flowers, colors, delivery address, timing. \n
-Collect contact information for order updates. \n
-Provide ORDER CONFIRMATION with ESTIMATED DELIVERY TIMES. \n
-Offer MULTIPLE PAYMENT OPTIONS and confirm SECURE PROCESSING. \n
-# Consultation and Recommendations \n
-Provide suggestions for cards with personal messages. \n
-Offer seasonal recommendations, such as spring: tulips, pastels, romance: roses, peonies. \n
-Suggest occasion-specific details, such as elegant wrapping. \n
-Recommend complementary items: vases, chocolates, cards. \n
-# Listing Items \n
-When listing items, use plain text, separated by commas or simple enumeration, such as '1. item 1, 2. item 2'. \n
-# Clarifying Questions \n
-If unsure about a request, ask clarifying questions to ensure understanding before responding. \n
-# Initial Response \n
-Respond as Flora, the voice of GreenForce Garden, with the following initial response: \n
-Thank you for calling GreenForce Garden. What can I do for you today? \n
-# Closing Protocol \n
-When the user says goodbye (e.g., 'bye', 'goodbye', 'see you', etc.), respond warmly with \n
-'Have a green day!' or 'Have a good one.' \n
-Important: Only use this closing protocol when the user explicitly bids farewell — not after \n
-order confirmation, payment success, or any other system message. \n
-Remember to always respond as Flora, the voice of GreenForce Garden, and follow the conversation guidelines strictly."""
+PROMPT_FILE = Path(os.getenv("PROMPT_FILE_PATH", str(Path(__file__).parent / "prompt.yaml")))
+MULTILINGUAL_MODE = os.getenv("ENABLE_MULTILINGUAL", "false").lower() == "true"
+
+
+class VADProfile(Enum):
+    """VAD Profile options."""
+
+    SILERO = "Silero"  # Transport Silero VAD analyzer
+    ASR = "ASR"  # ASR VAD
+
+
+VAD_PROFILE = VADProfile(os.getenv("VAD_PROFILE", VADProfile.ASR))
+
+
+def _load_prompts() -> dict:
+    if not PROMPT_FILE.exists():
+        raise FileNotFoundError(f"Prompt catalog not found at {PROMPT_FILE}")
+    try:
+        data = yaml.safe_load(PROMPT_FILE.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Invalid YAML in prompt catalog {PROMPT_FILE}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"Prompt catalog at {PROMPT_FILE} must be a mapping.")
+    return data
+
+
+PROMPTS = _load_prompts()
+
+
+def _resolve_prompt(selector: str) -> list[dict[str, str]]:
+    """Resolve a selector like 'model/prompt' into a list of {role, content} messages."""
+    try:
+        entry = PROMPTS
+        for part in selector.split("/"):
+            entry = entry[part]
+        return [{"role": m["role"], "content": m["content"]} for m in entry["messages"]]
+    except (KeyError, TypeError) as e:
+        raise KeyError(f"Prompt '{selector}' not found or invalid: {e}") from e
+
+
+def _inject_prompt_variables(prompt: str, **variables) -> str:
+    """Inject variables into prompt placeholders like {lang_codes}."""
+    try:
+        return prompt.format(**variables)
+    except KeyError:
+        return prompt
+
 
 app = FastAPI()
 
@@ -144,10 +143,10 @@ async def run_bot(webrtc_connection):
     transport_params = TransportParams(
         audio_in_enabled=True,
         audio_in_sample_rate=16000,
-        audio_out_sample_rate=16000,
+        audio_out_sample_rate=22050,
         audio_out_enabled=True,
-        vad_analyzer=SileroVADAnalyzer(),
         audio_out_10ms_chunks=5,
+        vad_analyzer=SileroVADAnalyzer() if VAD_PROFILE == VADProfile.SILERO else None,
     )
 
     transport = SmallWebRTCTransport(
@@ -155,23 +154,62 @@ async def run_bot(webrtc_connection):
         params=transport_params,
     )
 
+    # None if unset, True if "true", False if "false"
+    enable_thinking = {"true": True, "false": False}.get(os.getenv("ENABLE_THINKING", "").lower())
+
+    # Parse TEMPERATURE with error handling
+    try:
+        temperature = float(os.getenv("TEMPERATURE", "1.0"))
+    except ValueError:
+        logger.warning("Invalid TEMPERATURE, falling back to default 1.0")
+        temperature = 1.0
+
+    # Parse TOP_P with error handling
+    try:
+        top_p = float(os.getenv("TOP_P", "1.0"))
+    except ValueError:
+        logger.warning("Invalid TOP_P, falling back to default 1.0")
+        top_p = 1.0
+
+    try:
+        max_tokens = int(os.getenv("MAX_TOKENS", "2048"))
+    except ValueError:
+        logger.warning("Invalid MAX_TOKENS, falling back to default 2048")
+        max_tokens = 2048
+
     llm = NvidiaLLMService(
         api_key=os.getenv("NVIDIA_API_KEY"),
         base_url=os.getenv("NVIDIA_LLM_URL", "https://integrate.api.nvidia.com/v1"),
-        model=os.getenv("NVIDIA_LLM_MODEL", "meta/llama-3.1-8b-instruct"),
-        text_aggregator=BlingfireTextAggregator() if BlingfireTextAggregator else None,
+        model=os.getenv("NVIDIA_LLM_MODEL", "nvidia/nemotron-3-nano-30b-a3b"),
+        params=BaseOpenAILLMService.InputParams(
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            **(
+                {"extra": {"extra_body": {"chat_template_kwargs": {"enable_thinking": enable_thinking}}}}
+                if enable_thinking is not None
+                else {}
+            ),
+        ),
     )
 
-    stt = RivaASRService(
-        server=os.getenv("RIVA_ASR_URL", "grpc.nvcf.nvidia.com:443"),
-        api_key=os.getenv("NVIDIA_API_KEY"),
-        language=os.getenv("RIVA_ASR_LANGUAGE", "en-US"),
-        sample_rate=16000,
-        model=os.getenv("RIVA_ASR_MODEL", "parakeet-1.1b-en-US-asr-streaming-silero-vad-sortformer"),
-    )
+    # ASR service config - add extended stop_history for multilingual mode
+    stt_config = {
+        "server": os.getenv("ASR_SERVER_URL", "grpc.nvcf.nvidia.com:443"),
+        "api_key": os.getenv("NVIDIA_API_KEY"),
+        "function_id": os.getenv("ASR_CLOUD_FUNCTION_ID", "1598d209-5e27-4d3c-8079-4751568b1081"),
+        "language": os.getenv("ASR_LANGUAGE", "en-US"),
+        "sample_rate": 16000,
+        "generate_interruptions": VAD_PROFILE == VADProfile.ASR,
+        "model": os.getenv("ASR_MODEL_NAME", "parakeet-1.1b-en-US-asr-streaming-silero-vad-sortformer"),
+    }
+    if MULTILINGUAL_MODE:
+        stt_config.update(stop_history=900, stop_history_eou=900)
+
+    stt = NemotronASRService(**stt_config)
 
     # Load IPA dictionary with error handling
-    ipa_file = Path(__file__).parent / "ipa.json"
+    ipa_file = os.getenv("TTS_IPA_FILE_PATH", Path(__file__).parent / "ipa.json")
     try:
         with open(ipa_file, encoding="utf-8") as f:
             ipa_dict = json.load(f)
@@ -185,51 +223,132 @@ async def run_bot(webrtc_connection):
         logger.error(f"Error loading IPA dictionary: {e}")
         raise
 
-    tts = RivaTTSService(
-        server=os.getenv("RIVA_TTS_URL", "grpc.nvcf.nvidia.com:443"),
+    # TTS text filter only enabled when ENABLE_TTS_TEXT_FILTER=true AND language is en-US
+    # It is disabled when using the emotion-aware TTS prompt or multilingual mode.
+    enable_riva_text_filter = (
+        os.getenv("ENABLE_TTS_TEXT_FILTER", "true").lower() == "true"
+        and os.getenv("TTS_LANGUAGE", "en-US") == "en-US"
+        and os.getenv("ENABLE_MULTILINGUAL", "false").lower() == "false"
+        and os.getenv("SYSTEM_PROMPT_SELECTOR", "").lower() != "llama/tts_emotion_tags"
+    )
+
+    tts = NemotronTTSService(
+        server=os.getenv("TTS_SERVER_URL", "grpc.nvcf.nvidia.com:443"),
         api_key=os.getenv("NVIDIA_API_KEY"),
-        voice_id=os.getenv("RIVA_TTS_VOICE_ID", "Magpie-Multilingual.EN-US.Aria"),
-        model=os.getenv("RIVA_TTS_MODEL", "magpie_tts_ensemble-Magpie-Multilingual"),
-        language=os.getenv("RIVA_TTS_LANGUAGE", "en-US"),
+        voice_id=os.getenv("TTS_VOICE_ID", "Magpie-Multilingual.EN-US.Aria"),
+        model=os.getenv("TTS_MODEL_NAME", "magpie_tts_ensemble-Magpie-Multilingual"),
+        language=os.getenv("TTS_LANGUAGE", "en-US"),
+        sample_rate=22050,
         zero_shot_audio_prompt_file=(
             Path(os.getenv("ZERO_SHOT_AUDIO_PROMPT")) if os.getenv("ZERO_SHOT_AUDIO_PROMPT") else None
         ),
         custom_dictionary=ipa_dict,
-        text_aggregator=BlingfireTextAggregator() if BlingfireTextAggregator else None,
+        text_filters=[RivaTextFilter()] if enable_riva_text_filter else [],
     )
 
-    # Create audio_dumps directory if it doesn't exist
-    audio_dumps_dir = Path(__file__).parent / "audio_dumps"
-    audio_dumps_dir.mkdir(exist_ok=True)
+    # Audio dump configuration - controlled via environment variables
+    enable_asr_audio_dump = os.getenv("ENABLE_ASR_AUDIO_DUMP", "false").lower() == "true"
+    enable_tts_audio_dump = os.getenv("ENABLE_TTS_AUDIO_DUMP", "false").lower() == "true"
 
-    asr_recorder = AudioRecorder(
-        output_file=str(audio_dumps_dir / f"asr_recording_{stream_id}.wav"),
-        params=transport_params,
-        frame_type=InputAudioRawFrame,
-    )
+    asr_recorder = None
+    tts_recorder = None
 
-    tts_recorder = AudioRecorder(
-        output_file=str(audio_dumps_dir / f"tts_recording_{stream_id}.wav"),
-        params=transport_params,
-        frame_type=TTSAudioRawFrame,
-    )
+    if enable_asr_audio_dump or enable_tts_audio_dump:
+        audio_dumps_dir = Path(os.getenv("AUDIO_DUMP_PATH", str(Path(__file__).parent / "audio_dumps")))
+        try:
+            audio_dumps_dir.mkdir(parents=True, exist_ok=True)
+            # Test write permissions by creating a temp file
+            test_file = audio_dumps_dir / ".write_test"
+            test_file.touch()
+            test_file.unlink()
+        except PermissionError:
+            logger.error(
+                f"Permission denied for audio dump directory: {audio_dumps_dir}. "
+                "This can happen if the folder was previously created by Docker with different permissions. "
+                "To fix: remove the folder and recreate it with proper permissions, "
+                "or run: sudo chown -R $(id -u):$(id -g) " + str(audio_dumps_dir)
+            )
+            raise PermissionError(
+                f"Cannot write to audio dump directory: {audio_dumps_dir}. See logs for resolution steps."
+            ) from None
+
+        if enable_asr_audio_dump:
+            asr_recorder = AudioRecorder(
+                output_file=str(audio_dumps_dir / f"asr_recording_{stream_id}.wav"),
+                frame_type=InputAudioRawFrame,
+            )
+            logger.info(f"ASR audio dump enabled: {audio_dumps_dir / f'asr_recording_{stream_id}.wav'}")
+
+        if enable_tts_audio_dump:
+            tts_recorder = AudioRecorder(
+                output_file=str(audio_dumps_dir / f"tts_recording_{stream_id}.wav"),
+                frame_type=TTSAudioRawFrame,
+            )
+            logger.info(f"TTS audio dump enabled: {audio_dumps_dir / f'tts_recording_{stream_id}.wav'}")
 
     # Used to synchronize the user and bot transcripts in the UI
     stt_transcript_synchronization = UserTranscriptSynchronization()
     tts_transcript_synchronization = BotTranscriptSynchronization()
 
-    messages = [{"role": "system", "content": FLORA_SYSTEM_PROMPT}]
+    def _validated_selector(raw_value: str | None, default: str) -> str:
+        selector = (raw_value or "").strip() or default
+        if "/" not in selector:
+            raise ValueError("SYSTEM_PROMPT_SELECTOR must be in '<model>/<prompt>' format")
+        return selector
 
-    context = OpenAILLMContext(messages)
+    if MULTILINGUAL_MODE:
+        prompt_selector = _validated_selector(
+            os.getenv("SYSTEM_PROMPT_SELECTOR"),
+            "llama-3.3-nemotron-super-49b-v1.5/multilingual_voice_assistant",
+        )
+        lang_codes = ", ".join(tts.list_available_voices().keys())
+        messages = _resolve_prompt(prompt_selector)
+        messages = [
+            {"role": msg["role"], "content": _inject_prompt_variables(msg["content"], lang_codes=lang_codes)}
+            for msg in messages
+        ]
+        logger.info(f"Loaded multilingual prompt: {prompt_selector} with languages: {lang_codes}")
+    else:
+        prompt_selector = _validated_selector(
+            os.getenv("SYSTEM_PROMPT_SELECTOR"),
+            "nemotron-3-nano/generic_voice_assistant",
+        )
+        messages = _resolve_prompt(prompt_selector)
+        logger.info(f"Loaded prompt: {prompt_selector}")
+
+    # Defensive check to ensure the resolved prompt is not empty
+    if not messages:
+        raise ValueError(f"Resolved system prompt has no messages for selector: {prompt_selector}")
+
+    context = LLMContext(messages)
 
     # Configure speculative speech processing based on environment variable
     enable_speculative_speech = os.getenv("ENABLE_SPECULATIVE_SPEECH", "true").lower() == "true"
+    try:
+        chat_history_limit = int(os.getenv("CHAT_HISTORY_LIMIT", "20"))
+    except ValueError:
+        logger.warning("Invalid CHAT_HISTORY_LIMIT, falling back to default 20")
+        chat_history_limit = 20
+
+    # Preserve all initial prompt messages from prompt.yaml
+    # This ensures system and first user messages (used for prompting) are never truncated
+    preserve_prompt_messages = len(messages)
 
     if enable_speculative_speech:
-        context_aggregator = create_nvidia_context_aggregator(context, send_interims=True)
+        context_aggregator = create_nvidia_context_aggregator(
+            context,
+            send_interims=True,
+            chat_history_limit=chat_history_limit,
+            preserve_prompt_messages=preserve_prompt_messages,
+        )
         tts_response_cacher = NvidiaTTSResponseCacher()
     else:
-        context_aggregator = llm.create_context_aggregator(context)
+        context_aggregator = create_nvidia_context_aggregator(
+            context,
+            send_interims=False,
+            chat_history_limit=chat_history_limit,
+            preserve_prompt_messages=preserve_prompt_messages,
+        )
         tts_response_cacher = None
 
     # Create NVIDIA RTVI input processor with application-specific message handlers
@@ -237,22 +356,20 @@ async def run_bot(webrtc_connection):
         transport=transport,
         context=context,
     )
-    rtvi_output = NvidiaRTVIOutput(rtvi_input)
 
     pipeline = Pipeline(
         [
             transport.input(),  # WebRTC input from client
             rtvi_input,  # NVIDIA RTVI input processor with Client-specific message handlers
-            asr_recorder,
+            *([asr_recorder] if asr_recorder else []),
             stt,  # Speech-To-Text
             stt_transcript_synchronization,
             context_aggregator.user(),
             llm,  # LLM
             tts,  # Text-To-Speech
-            tts_recorder,
+            *([tts_recorder] if tts_recorder else []),
             *([tts_response_cacher] if tts_response_cacher else []),
             tts_transcript_synchronization,
-            rtvi_output,  # NVIDIA RTVI output processor for passing Client-specific frames for consumption
             transport.output(),  # WebRTC output to client
             context_aggregator.assistant(),
         ]
@@ -267,17 +384,28 @@ async def run_bot(webrtc_connection):
             send_initial_empty_metrics=True,
             start_metadata={"stream_id": stream_id},
         ),
+        observers=[NvidiaRTVIObserver(rtvi_input)],
     )
 
-    @webrtc_connection.event_handler("connected")
-    async def on_connection_established(connection):
-        # Wait for data channel to be open before sending frames
-        for _ in range(50):  # 5 seconds max
-            if connection._data_channel and connection._data_channel.readyState == "open":
-                await task.queue_frames([RivaFetchVoicesFrame()])
-                await task.queue_frames([ShowSystemPromptFrame(prompt=FLORA_SYSTEM_PROMPT)])
-                break
-            await asyncio.sleep(0.1)
+    @rtvi_input.event_handler("on_client_ready")
+    async def on_client_ready(rtvi_input):
+        try:
+            await rtvi_input.set_bot_ready()
+            await task.queue_frames(
+                [
+                    RivaFetchVoicesFrame(),
+                    RTVIServerMessageFrame(
+                        data={
+                            "type": "system_prompt",
+                            "prompts": messages,
+                            "prompt": messages[0]["content"],
+                        }
+                    ),
+                ]
+            )
+        except Exception as e:
+            logger.error(f"Error on client ready: {e}")
+            await rtvi_input.send_error(str(e))
 
     runner = PipelineRunner(handle_sigint=False)
 

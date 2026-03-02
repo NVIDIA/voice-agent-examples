@@ -12,18 +12,26 @@ Here, we give a brief overview of the processors available in the [nvidia-pipeca
 
 | **Pipecat Service** | **Description** |
 | --- | --- |
-| RivaASRService | This service provides streaming speech recognition using NVIDIA's [Riva ASR models](https://docs.nvidia.com/deeplearning/riva/user-guide/docs/asr/asr-overview.html). It supports real-time transcription with interim results and interruption handling. |
-| RivaTTSService | This service provides high-quality speech synthesis using NVIDIA's [Riva TTS models](https://docs.nvidia.com/deeplearning/riva/user-guide/docs/tts/tts-overview.html). It supports multiple voices, languages, and custom dictionaries for pronunciation. |
-| RivaNMTService | This service can be used for text translation between different languages. It uses [NVIDIA Riva Neural Machine Translation](https://docs.nvidia.com/deeplearning/riva/user-guide/docs/tutorials/nmt-python-basics.html) APIs. |
+| NemotronASRService | This service provides streaming speech recognition using NVIDIA's [Nemotron Speech ASR NIM](https://docs.nvidia.com/nim/riva/asr/latest/overview.html). It supports real-time transcription with interim results and interruption handling. |
+| NemotronTTSService | This service provides high-quality speech synthesis using NVIDIA's [Nemotron Speech TTS NIM](https://docs.nvidia.com/nim/riva/tts/latest/overview.html). It supports multiple voices, languages, and custom dictionaries for pronunciation. |
 
+> **Migration Note**  
+> In version 0.4.0, `RivaASRService` and `RivaTTSService` were renamed to `NemotronASRService` and `NemotronTTSService` respectively to better reflect the underlying Nemotron Speech technology. The old names remain available as deprecated aliases but will emit deprecation warnings. Please update your imports:
+> ```python
+> # Old (deprecated)
+> from nvidia_pipecat.services.riva_speech import RivaASRService, RivaTTSService
+> 
+> # New (recommended)
+> from nvidia_pipecat.services.riva_speech import NemotronASRService, NemotronTTSService
+> ```
 
 ### LLM, RAG and NAT Services
 
 | **Pipecat Service** | **Description** |
 | --- | --- |
-| NvidiaLLMService | This service extends the functionality of LLMService and serves as base class for all the services that connect with [NVIDIA NIM LLMs](https://docs.nvidia.com/nim/large-language-models/latest/introduction.html) using the ChatNvidia client. |
+| NvidiaLLMService | This service extends the functionality of LLMService and serves as base class for all the services that connect with [NVIDIA NIM LLMs](https://docs.nvidia.com/nim/large-language-models/latest/getting-started.html)|
 | NvidiaRAGService | This service can be used if we want to have the [NVIDIA RAG](https://github.com/NVIDIA-AI-Blueprints/rag/) as the dialog management component in the pipeline. |
-| NATAgentService | Integrates with NVIDIA's [Nemo Agent Toolkit](https://docs.nvidia.com/nemo/agent-toolkit/1.2/api/nat/index.html) to utilize AI agents in voice pipeline. |
+| NATAgentService | Integrates with NVIDIA's [Nemo Agent Toolkit](https://developer.nvidia.com/nemo-agent-toolkit) to utilize AI agents in voice pipeline. |
 
 
 ### Speculative Speech Processing Services
@@ -43,4 +51,3 @@ Here, we give a brief overview of the processors available in the [nvidia-pipeca
 | UserTranscriptSynchronization | Synchronizes user speech transcripts with the received speech. |
 | BotTranscriptSynchronization | Synchronizes bot speech transcripts with audio bot speech playback (TTS playback). |
 | NvidiaRTVIInput | This processor extends the base RTVIProcessor to handle WebRTC UI client messages such as context resets, voice changes, and audio uploads. |
-| NvidiaRTVIOutput | This processor forwards transcript frames and Riva configuration frames (voice lists, TTS settings, system prompts) to the WebRTC UI client as server messages. |

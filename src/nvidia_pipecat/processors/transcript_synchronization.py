@@ -9,7 +9,7 @@ from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     Frame,
     InterimTranscriptionFrame,
-    StartInterruptionFrame,
+    InterruptionFrame,
     TranscriptionFrame,
     TTSStartedFrame,
     TTSTextFrame,
@@ -38,7 +38,7 @@ class UserTranscriptSynchronization(FrameProcessor):
         TranscriptionFrame: ASR final transcript
         UserStartedSpeakingFrame: User starts speaking
         UserStoppedSpeakingFrame: User stops speaking
-        StartInterruptionFrame: Resets processor state
+        InterruptionFrame: Resets processor state
 
     Attributes:
         _partial_transcript (str | None): Current partial ASR transcript.
@@ -70,7 +70,7 @@ class UserTranscriptSynchronization(FrameProcessor):
 
         if isinstance(frame, InterimTranscriptionFrame):
             # Check if partial transcript changed
-            # TODO: We need filter out more of the duplicated or very similar transcripts with Riva TTS
+            # TODO: We need filter out more of the duplicated or very similar transcripts with Nemotron Speech TTS
             if not self._partial_transcript or self._partial_transcript != frame.text:
                 self._partial_transcript = frame.text
                 updated_transcript = (
@@ -87,7 +87,7 @@ class UserTranscriptSynchronization(FrameProcessor):
                 )
         elif isinstance(frame, UserStoppedSpeakingFrame):
             self._stopped_speaking = True
-        elif isinstance(frame, StartInterruptionFrame):
+        elif isinstance(frame, InterruptionFrame):
             self._partial_transcript = None
             self._final_transcript = ""
             self._stopped_speaking = None
@@ -119,7 +119,7 @@ class BotTranscriptSynchronization(FrameProcessor):
         TTSTextFrame: Text to be spoken
         BotStartedSpeakingFrame: Bot starts speaking
         BotStoppedSpeakingFrame: Bot stops speaking
-        StartInterruptionFrame: Resets processor state
+        InterruptionFrame: Resets processor state
 
     Attributes:
         _bot_started_speaking (bool): Indicates if the bot has started speaking.
@@ -140,13 +140,13 @@ class BotTranscriptSynchronization(FrameProcessor):
             direction (FrameDirection): Frame flow direction.
         """
         await super().process_frame(frame, direction)
-        if isinstance(frame, StartInterruptionFrame):
+        if isinstance(frame, InterruptionFrame):
             # Reset transcript buffer
             self._bot_transcripts_buffer = []
             self._bot_started_speaking = False
             await self.push_frame(frame, direction)
         elif isinstance(frame, TTSStartedFrame):
-            # TODO: Need to verify for edge cases and tts services apart from NVIDIA Riva
+            # TODO: Need to verify for edge cases and tts services apart from NVIDIA Nemotron Speech TTS
             if self._bot_transcripts_buffer:
                 self._bot_transcripts_buffer.pop(0)
             # Start buffering the next transcript
@@ -154,15 +154,16 @@ class BotTranscriptSynchronization(FrameProcessor):
             await self.push_frame(frame, direction)
         elif isinstance(frame, TTSTextFrame):
             # Aggregate partial transcripts
+            display_text = getattr(frame, "metadata", {}).get("display_text") or frame.text
             if not self._bot_transcripts_buffer:
                 logger.warning("TTSTextFrame received before TTSStartedFrame!")
-                # It looks like some TTS processors keep on sending TTSTextFrame even after a StartInterruptionFrame.
+                # It looks like some TTS processors keep on sending TTSTextFrame even after a InterruptionFrame.
             else:
-                if frame.text:
+                if display_text:
                     if self._bot_transcripts_buffer[-1]:
-                        self._bot_transcripts_buffer[-1] += f" {frame.text}"
+                        self._bot_transcripts_buffer[-1] += f" {display_text}"
                     else:
-                        self._bot_transcripts_buffer[-1] = frame.text
+                        self._bot_transcripts_buffer[-1] = display_text
                 # TODO: We need to figure out how to align the partial transcripts
                 # with the audio. Currently, they are shown as soon as they come in.
                 # This is needed to get the full transcript from Elevenlabs TTS

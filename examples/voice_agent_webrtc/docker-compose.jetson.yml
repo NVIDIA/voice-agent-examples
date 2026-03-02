@@ -24,7 +24,7 @@ services:
     command:
       - |
         python3 -m vllm.entrypoints.openai.api_server \
-          --model "$${NVIDIA_LLM_MODEL:-nvidia/Nemotron-Mini-4B-Instruct}" \
+          --model "$${NVIDIA_LLM_MODEL:-RedHatAI/Meta-Llama-3.1-8B-Instruct-quantized.w4a16}" \
           --host 0.0.0.0 \
           --port 8000 \
           --max-model-len 4096 \
@@ -55,8 +55,10 @@ services:
     network_mode: host
     env_file:
       - .env.jetson
-    environment:
-      - ENABLE_SPECULATIVE_SPEECH=false
+    volumes:
+      - ./audio_dumps:/app/examples/voice_agent_webrtc/audio_dumps
+      - ./prompt.yaml:/app/examples/voice_agent_webrtc/prompt.yaml:ro
+      - ./ipa.json:/app/examples/voice_agent_webrtc/ipa.json:ro
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "curl -s http://localhost:7860/ || exit 1"]
@@ -70,8 +72,8 @@ services:
 
   ui-app:
     build:
-      context: .
-      dockerfile: Dockerfile.ui
+      context: ../webrtc_ui
+      dockerfile: Dockerfile
     container_name: webrtc-ui-jetson
     ports:
       - "8081:8000"

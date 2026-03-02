@@ -6,7 +6,7 @@
 import httpx
 import pytest
 from loguru import logger
-from pipecat.frames.frames import ErrorFrame, LLMMessagesFrame, TextFrame
+from pipecat.frames.frames import ErrorFrame, LLMMessagesUpdateFrame, TextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
@@ -162,12 +162,12 @@ async def test_nvidia_rag_service(mocker):
         rag = NvidiaRAGService(collection_name=tc_data["collection_name"])
         storage1 = FrameStorage()
         storage2 = FrameStorage()
-        context_aggregator = rag.create_context_aggregator(OpenAILLMContext(tc_data["messages"]))
+        context_aggregator = rag.create_context_aggregator(OpenAILLMContext(messages=tc_data["messages"]))
 
         pipeline = Pipeline([context_aggregator.user(), storage1, rag, storage2, context_aggregator.assistant()])
 
         async def test_routine(task: PipelineTask, test_data=tc_data, s1=storage1, s2=storage2):
-            await task.queue_frame(LLMMessagesFrame(test_data["messages"]))
+            await task.queue_frame(LLMMessagesUpdateFrame(messages=test_data["messages"], run_llm=True))
 
             # Wait for the result frame
             if "ErrorFrame" in test_data["result_frame"].name:

@@ -15,7 +15,7 @@ from unittest.mock import DEFAULT, AsyncMock, patch
 import pytest
 from pipecat.frames.frames import LLMTextFrame
 from pipecat.metrics.metrics import LLMTokenUsage
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.processors.aggregators.llm_context import LLMContext
 
 from nvidia_pipecat.services.nvidia_llm import NvidiaLLMService
 
@@ -278,7 +278,7 @@ async def test_process_context_with_think_filtering():
     with patch.multiple(
         NvidiaLLMService,
         create_client=DEFAULT,
-        _stream_chat_completions_specific_context=DEFAULT,
+        _stream_chat_completions_universal_context=DEFAULT,
         start_ttfb_metrics=DEFAULT,
         stop_ttfb_metrics=DEFAULT,
         push_frame=DEFAULT,
@@ -292,10 +292,10 @@ async def test_process_context_with_think_filtering():
             MockChatCompletionChunk(content="/think>Real content"),
             MockChatCompletionChunk(content=" continues"),
         ]
-        mocks["_stream_chat_completions_specific_context"].return_value = MockAsyncStream(chunks)
+        mocks["_stream_chat_completions_universal_context"].return_value = MockAsyncStream(chunks)
 
         # Process context
-        context = OpenAILLMContext(messages=[{"role": "user", "content": "Test query"}])
+        context = LLMContext(messages=[{"role": "user", "content": "Test query"}])
         await service._process_context(context)
 
         # Verify frame content - empty frames during thinking, content after tag
@@ -308,7 +308,7 @@ async def test_process_context_with_function_calls():
     """Test handling of function calls from LLM."""
     with (
         patch.object(NvidiaLLMService, "create_client"),
-        patch.object(NvidiaLLMService, "_stream_chat_completions_specific_context") as mock_stream,
+        patch.object(NvidiaLLMService, "_stream_chat_completions_universal_context") as mock_stream,
         patch.object(NvidiaLLMService, "has_function", new=AsyncMock(), create=True) as mock_has_function,
         patch.object(NvidiaLLMService, "call_function", new=AsyncMock(), create=True) as mock_call_function,
     ):
@@ -330,7 +330,7 @@ async def test_process_context_with_function_calls():
         mock_call_function.return_value = None
 
         # Process a context
-        context = OpenAILLMContext(messages=[{"role": "user", "content": "What's the weather in New York?"}])
+        context = LLMContext(messages=[{"role": "user", "content": "What's the weather in New York?"}])
         await service._process_context(context)
 
         # Verify function was called with combined arguments
@@ -346,7 +346,7 @@ async def test_process_context_with_mistral_preprocessing():
     """Test processing context with Mistral message preprocessing."""
     with (
         patch.object(NvidiaLLMService, "create_client"),
-        patch.object(NvidiaLLMService, "_stream_chat_completions_specific_context") as mock_stream,
+        patch.object(NvidiaLLMService, "_stream_chat_completions_universal_context") as mock_stream,
     ):
         service = NvidiaLLMService(api_key="test_api_key", mistral_model_support=True)
 
@@ -355,7 +355,7 @@ async def test_process_context_with_mistral_preprocessing():
         mock_stream.return_value = MockAsyncStream(chunks)
 
         # Test 1: Combining consecutive user messages
-        context = OpenAILLMContext(
+        context = LLMContext(
             messages=[
                 {"role": "system", "content": "You are helpful."},
                 {"role": "user", "content": "Hello"},
@@ -375,7 +375,7 @@ async def test_process_context_with_mistral_preprocessing():
 
         # Test 2: System message only - should skip processing
         mock_stream.reset_mock()
-        system_only_context = OpenAILLMContext(
+        system_only_context = LLMContext(
             messages=[
                 {"role": "system", "content": "You are helpful."},
             ]

@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD 2-Clause License
 
-"""Logging utilities when working with pipecat pipelines connected to ACE."""
+"""Logging utilities when working with pipecat pipelines."""
 
 import asyncio
 import sys
@@ -15,7 +15,7 @@ async def logger_context(coro, **kwargs):
         return await coro
 
 
-def setup_default_ace_logging(
+def setup_default_logging(
     level: str = "INFO",
     stream_id: str | None = None,
     exclude_warning: bool = False,

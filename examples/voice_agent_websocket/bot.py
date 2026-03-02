@@ -4,59 +4,65 @@
 """Speech-to-speech conversation bot."""
 
 import os
+from enum import Enum
 from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
+from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import LLMMessagesFrame
+from pipecat.frames.frames import LLMMessagesUpdateFrame
 from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams, FastAPIWebsocketTransport
 
-from nvidia_pipecat.pipeline.ace_pipeline_runner import ACEPipelineRunner, PipelineMetadata
 from nvidia_pipecat.processors.nvidia_context_aggregator import (
     NvidiaTTSResponseCacher,
     create_nvidia_context_aggregator,
 )
-from nvidia_pipecat.services.blingfire_text_aggregator import BlingfireTextAggregator
 from nvidia_pipecat.services.nvidia_llm import NvidiaLLMService
-from nvidia_pipecat.services.riva_speech import RivaASRService, RivaTTSService
-from nvidia_pipecat.transports.services.ace_controller.routers.websocket_router import router as websocket_router
-from nvidia_pipecat.utils.logging import setup_default_ace_logging
+from nvidia_pipecat.services.riva_speech import NemotronASRService, NemotronTTSService
+from nvidia_pipecat.utils.logging import setup_default_logging
 
 load_dotenv(override=True)
 
-setup_default_ace_logging(level="DEBUG", exclude_warning=True)
+
+class VADProfile(Enum):
+    """VAD Profile options."""
+
+    SILERO = "Silero"  # Transport Silero VAD analyzer
+    ASR = "ASR"  # ASR VAD
 
 
-async def create_pipeline_task(pipeline_metadata: PipelineMetadata):
-    """Create the pipeline to be run.
+VAD_PROFILE = VADProfile(os.getenv("VAD_PROFILE", VADProfile.ASR))
+
+setup_default_logging(level="DEBUG", exclude_warning=True)
+
+
+async def run_bot(websocket: WebSocket, stream_id: str):
+    """Run the voice agent bot with WebSocket.
 
     Args:
-        pipeline_metadata (PipelineMetadata): Metadata containing websocket and other pipeline configuration.
-
-    Returns:
-        PipelineTask: The configured pipeline task for handling speech-to-speech conversation.
+        websocket (WebSocket): The WebSocket connection for audio streaming.
+        stream_id (str): The unique identifier for the conversation stream.
     """
     # Initialize WebSocket transport with protobuf serialization
     transport = FastAPIWebsocketTransport(
-        websocket=pipeline_metadata.websocket,
+        websocket=websocket,
         params=FastAPIWebsocketParams(
             audio_in_enabled=True,
             audio_in_sample_rate=16000,
             audio_out_enabled=True,
             audio_out_sample_rate=16000,
-            vad_enabled=True,
-            vad_analyzer=SileroVADAnalyzer(),
-            vad_audio_passthrough=True,
             audio_out_10ms_chunks=10,
             add_wav_header=True,
             serializer=ProtobufFrameSerializer(),
+            vad_analyzer=SileroVADAnalyzer() if VAD_PROFILE == VADProfile.SILERO else None,
         ),
     )
 
@@ -64,27 +70,27 @@ async def create_pipeline_task(pipeline_metadata: PipelineMetadata):
         api_key=os.getenv("NVIDIA_API_KEY"),
         base_url=os.getenv("NVIDIA_LLM_URL", "https://integrate.api.nvidia.com/v1"),
         model=os.getenv("NVIDIA_LLM_MODEL", "meta/llama-3.1-8b-instruct"),
-        text_aggregator=BlingfireTextAggregator(),
     )
 
-    stt = RivaASRService(
-        server=os.getenv("RIVA_ASR_URL", "grpc.nvcf.nvidia.com:443"),
+    stt = NemotronASRService(
+        server=os.getenv("ASR_SERVER_URL", "grpc.nvcf.nvidia.com:443"),
         api_key=os.getenv("NVIDIA_API_KEY"),
-        language=os.getenv("RIVA_ASR_LANGUAGE", "en-US"),
+        language=os.getenv("ASR_LANGUAGE", "en-US"),
         sample_rate=16000,
-        model=os.getenv("RIVA_ASR_MODEL", "parakeet-1.1b-en-US-asr-streaming-silero-vad-sortformer"),
+        model=os.getenv("ASR_MODEL_NAME", "parakeet-1.1b-en-US-asr-streaming-silero-vad-sortformer"),
+        generate_interruptions=VAD_PROFILE == VADProfile.ASR,
     )
 
-    tts = RivaTTSService(
-        server=os.getenv("RIVA_TTS_URL", "grpc.nvcf.nvidia.com:443"),
+    tts = NemotronTTSService(
+        server=os.getenv("TTS_SERVER_URL", "grpc.nvcf.nvidia.com:443"),
         api_key=os.getenv("NVIDIA_API_KEY"),
-        voice_id=os.getenv("RIVA_TTS_VOICE_ID", "Magpie-Multilingual.EN-US.Aria"),
-        model=os.getenv("RIVA_TTS_MODEL", "magpie_tts_ensemble-Magpie-Multilingual"),
-        language=os.getenv("RIVA_TTS_LANGUAGE", "en-US"),
+        voice_id=os.getenv("TTS_VOICE_ID", "Magpie-Multilingual.EN-US.Aria"),
+        model=os.getenv("TTS_MODEL_NAME", "magpie_tts_ensemble-Magpie-Multilingual"),
+        language=os.getenv("TTS_LANGUAGE", "en-US"),
+        sample_rate=16000,
         zero_shot_audio_prompt_file=(
             Path(os.getenv("ZERO_SHOT_AUDIO_PROMPT")) if os.getenv("ZERO_SHOT_AUDIO_PROMPT") else None
         ),
-        text_aggregator=BlingfireTextAggregator(),
     )
 
     # System prompt can be changed to fit the use case
@@ -97,16 +103,26 @@ async def create_pipeline_task(pipeline_metadata: PipelineMetadata):
         },
     ]
 
-    context = OpenAILLMContext(messages)
+    context = LLMContext(messages)
 
     # Configure speculative speech processing based on environment variable
     enable_speculative_speech = os.getenv("ENABLE_SPECULATIVE_SPEECH", "true").lower() == "true"
+    raw_chat_history = os.getenv("CHAT_HISTORY_LIMIT")
+    try:
+        chat_history_limit = int(raw_chat_history) if raw_chat_history is not None else 20
+    except ValueError:
+        logger.warning(f"Invalid CHAT_HISTORY_LIMIT {raw_chat_history!r}, falling back to default 20")
+        chat_history_limit = 20
 
     if enable_speculative_speech:
-        context_aggregator = create_nvidia_context_aggregator(context, send_interims=True)
+        context_aggregator = create_nvidia_context_aggregator(
+            context, send_interims=True, chat_history_limit=chat_history_limit
+        )
         tts_response_cacher = NvidiaTTSResponseCacher()
     else:
-        context_aggregator = llm.create_context_aggregator(context)
+        context_aggregator = create_nvidia_context_aggregator(
+            context, send_interims=False, chat_history_limit=chat_history_limit
+        )
         tts_response_cacher = None
 
     pipeline = Pipeline(
@@ -129,7 +145,7 @@ async def create_pipeline_task(pipeline_metadata: PipelineMetadata):
             enable_metrics=True,
             enable_usage_metrics=True,
             send_initial_empty_metrics=True,
-            start_metadata={"stream_id": pipeline_metadata.stream_id},
+            start_metadata={"stream_id": stream_id},
         ),
     )
 
@@ -137,14 +153,33 @@ async def create_pipeline_task(pipeline_metadata: PipelineMetadata):
     async def on_client_connected(transport, client):
         # Kick off the conversation.
         messages.append({"role": "system", "content": "Please introduce yourself to the user."})
-        await task.queue_frames([LLMMessagesFrame(messages)])
+        await task.queue_frames([LLMMessagesUpdateFrame(messages=messages, run_llm=True)])
 
-    return task
+    runner = PipelineRunner(handle_sigint=False)
+    await runner.run(task)
 
 
 app = FastAPI()
-app.include_router(websocket_router)
-runner = ACEPipelineRunner.create_instance(pipeline_callback=create_pipeline_task)
+
+
+@app.websocket("/ws/{stream_id}")
+async def websocket_endpoint(websocket: WebSocket, stream_id: str):
+    """Accept the WebSocket connection and run the pipeline.
+
+    Args:
+        websocket (WebSocket): The WebSocket connection.
+        stream_id (str): The ID of the stream.
+    """
+    await websocket.accept()
+    logger.info(f"Accepted WebSocket connection for stream ID {stream_id}")
+    try:
+        with logger.contextualize(stream_id=stream_id):
+            await run_bot(websocket, stream_id)
+    except Exception as e:
+        logger.error(f"Error running pipeline: {e}")
+        await websocket.close(code=1000, reason="Internal Server Error")
+
+
 app.mount("/static", StaticFiles(directory=os.getenv("STATIC_DIR", "./static")), name="static")
 
 if __name__ == "__main__":

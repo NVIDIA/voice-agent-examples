@@ -34,10 +34,10 @@ This implementation relies on three core components that work together to enable
 
 **Key Capabilities:**
 - Updates existing responses as more context arrives
-- Maintains strict user-assistant turn-taking protocol
-- Ensures conversation coherence during speculative processing
+- Maintains conversation coherence during speculative processing
 - Coordinates with user context for proper timing
 - Prevents response conflicts and overlapping turns
+- Supports dynamic message updates for interim transcript handling
 
 ### NvidiaTTSResponseCacher
 
@@ -70,10 +70,10 @@ As the user speaks, the system receives interim transcripts from the speech-to-t
 
 The `NvidiaUserContextAggregator` processes only stable interim transcripts (stability=1.0) to prevent processing unstable or rapidly changing transcriptions. When a final transcript arrives, it replaces any interim transcripts for that utterance if the content of the final transcript is different from the received interims before it.
 
-In addition, the `NvidiaUserContextAggregator` maintains conversation history using a dynamic update mechanism. Instead of always appending new messages, it updates existing messages when appropriate. This approach helps maintain conversation coherence while enabling early response generation for speculative speech scenarios. The system enforces strict user-assistant turn-taking to ensure natural conversation flow where each user query is strictly followed by an assistant response entry.
+In addition, the `NvidiaUserContextAggregator` maintains conversation history using a dynamic update mechanism. Instead of always appending new messages, it updates existing messages when appropriate. This approach helps maintain conversation coherence while enabling early response generation for speculative speech scenarios. The system manages user-assistant conversation flow to ensure natural interactions, allowing multiple user utterances to be accumulated before generating assistant responses when appropriate.
 
 
-After transcript filtration and conversation history management from `NvidiaUserContextAggregator`, transcriptions are sent downstream to LLM and TTS services as `OpenAILLMContextFrame`.
+After transcript filtration and conversation history management from `NvidiaUserContextAggregator`, transcriptions are sent downstream to LLM and TTS services as `LLMContextFrame`.
 
 After responses are generated from TTS service, `NvidiaTTSResponseCacher` manages their delivery timing. While the user is speaking, TTS responses are cached rather than immediately played. This caching mechanism prevents response overlap and maintains natural turn-taking. When the user stops speaking, cached responses are released in the appropriate order, creating a more natural conversational experience.
 
@@ -82,11 +82,9 @@ After responses are generated from TTS service, `NvidiaTTSResponseCacher` manage
 ### Example Pipeline Configuration
 
 ```python
-nvidia_tts_response_cacher = NvidiaTTSResponseCacher()
-
 pipeline = Pipeline([
     transport.input(),                      # Input from client
-    stt,                                    # Speech-to-Text [RivaASRService]
+    stt,                                    # Speech-to-Text [NemotronASRService]
     nvidia_context_aggregator.user(),       # Handle interim/final transcripts
     llm,                                    # Language Model
     tts,                                    # Text-to-Speech [TTS service]
@@ -108,7 +106,7 @@ nvidia_context_aggregator = create_nvidia_context_aggregator(
 
 ## Enabling Speculative Speech Processing
 
-Speculative speech processing is enabled through a simple environment variable configuration. When enabled, the system processes the final as well as the stable interim transcripts and follows a strict turn-taking approach where responses are generated even before the user completes their utterance based on hypothesized transcripts from Riva ASR Service (the interim transcripts).
+Speculative speech processing is enabled through a simple environment variable configuration. When enabled, the system processes both final and stable interim transcripts, generating responses even before the user completes their utterance based on hypothesized transcripts from Nemotron Speech ASR Service (the interim transcripts). This allows for lower latency responses while maintaining conversation coherence.
 
 ### Configuration Using Environment Variable
 
@@ -149,7 +147,11 @@ The implementation dynamically switches between two configurations:
 
 **With Speculative Speech Enabled (`ENABLE_SPECULATIVE_SPEECH=true`):**
 ```python
-context_aggregator = create_nvidia_context_aggregator(context, send_interims=True)
+context_aggregator = create_nvidia_context_aggregator(
+    context, 
+    send_interims=True,
+    chat_history_limit=20
+)
 tts_response_cacher = NvidiaTTSResponseCacher()
 
 pipeline = Pipeline([
@@ -166,7 +168,11 @@ pipeline = Pipeline([
 
 **With Speculative Speech Disabled (`ENABLE_SPECULATIVE_SPEECH=false`):**
 ```python
-context_aggregator = llm.create_context_aggregator(context)
+context_aggregator = create_nvidia_context_aggregator(
+    context,
+    send_interims=False,
+    chat_history_limit=20
+)
 
 pipeline = Pipeline([
     transport.input(),
@@ -189,13 +195,13 @@ After enabling speculative speech processing:
 - **Improved context management**: Support for interim updates with dynamic conversation history
 - **Performance trade-off**: Potentially decreased response latency; however, it slightly increases processing overhead
 
-> **Note:** This feature only works when using Riva ASR. Ensure your ASR service is configured to provide interim transcripts with stability metrics.
+> **Note:** This feature only works when using Nemotron Speech ASR. Ensure your ASR service is configured to provide interim transcripts with stability metrics.
 
 ## Building Speculative Speech Processing Specific Frame Processors
 
 When developing features that work with speculative speech processing, it's crucial to design components that can handle both interim and final transcripts while maintaining conversation coherence. The system needs to manage early responses and potential updates.
 
-The following guidelines are useful when building frame processors that lie between the `RivaASRService` and the `NvidiaTTSResponseCacher` frame processor in the pipeline.
+The following guidelines are useful when building frame processors that lie between the `NemotronASRService` and the `NvidiaTTSResponseCacher` frame processor in the pipeline.
 
 **Handle Interim States:**
 - Design frames to carry stability information
@@ -214,7 +220,7 @@ The following guidelines are useful when building frame processors that lie betw
 
 ## Technical Foundation
 
-This implementation builds on **NVIDIA Riva ASR's Two-Pass End of Utterance** mechanism, which enables speculative processing through:
+This implementation builds on **NVIDIA Nemotron Speech ASR's Two-Pass End of Utterance** mechanism, which enables speculative processing through:
 
 - Real-time interim transcript generation with stability metrics
 - Sophisticated hypothesis refinement as more audio is processed
@@ -223,4 +229,4 @@ This implementation builds on **NVIDIA Riva ASR's Two-Pass End of Utterance** me
 
 ## Learn More
 
-For detailed information about the underlying ASR technology and Two-Pass End of Utterance mechanism, refer to the [NVIDIA Riva ASR documentation](https://docs.nvidia.com/deeplearning/riva/user-guide/docs/asr/asr-overview.html#two-pass-end-of-utterance).
+For detailed information about the underlying ASR technology and Two-Pass End of Utterance mechanism, refer to the [NVIDIA Nemotron Speech ASR documentation](https://docs.nvidia.com/deeplearning/riva/user-guide/docs/asr/asr-overview.html#two-pass-end-of-utterance).

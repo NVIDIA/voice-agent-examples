@@ -6,16 +6,18 @@
 import pytest
 from pipecat.frames.frames import (
     InterruptionFrame,
+    LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
-    LLMMessagesFrame,
+    LLMMessagesUpdateFrame,
     TextFrame,
     TranscriptionFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext, OpenAILLMContextFrame
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContextFrame
 from pipecat.tests.utils import SleepFrame
 from pipecat.tests.utils import run_test as run_pipecat_test
 from pipecat.utils.time import time_now_iso8601
@@ -43,7 +45,7 @@ async def test_normal_flow():
         - Context updates at each stage
     """
     messages = []
-    context = OpenAILLMContext(messages)
+    context = LLMContext(messages)
     context_aggregator = create_nvidia_context_aggregator(context, send_interims=True)
 
     pipeline = Pipeline([context_aggregator.user(), context_aggregator.assistant()])
@@ -51,7 +53,7 @@ async def test_normal_flow():
     # Test Case 1: Normal flow with UserStartedSpeakingFrame first
     frames_to_send = [
         UserStartedSpeakingFrame(),
-        LLMMessagesFrame(messages),
+        LLMMessagesUpdateFrame(messages=messages, run_llm=True),
         RivaInterimTranscriptionFrame("Hello", "", time_now_iso8601(), None, stability=1.0),
         TranscriptionFrame("Hello User Aggregator!", 1, 2),
         SleepFrame(0.1),
@@ -70,11 +72,11 @@ async def test_normal_flow():
         UserStartedSpeakingFrame,
         InterruptionFrame,
         InterruptionFrame,
-        LLMMessagesFrame,
-        OpenAILLMContextFrame,  # From first interim
-        OpenAILLMContextFrame,  # From final transcription
+        OpenAILLMContextFrame,  # From initial LLMMessagesUpdateFrame(run_llm=True) - base aggregator
+        LLMContextFrame,  # From first interim - our custom aggregator
+        LLMContextFrame,  # From final transcription - our custom aggregator
         UserStoppedSpeakingFrame,
-        OpenAILLMContextFrame,  # From assistant response
+        LLMContextFrame,  # From assistant response
     ]
     await run_pipecat_test(
         pipeline,
@@ -84,6 +86,7 @@ async def test_normal_flow():
 
     # Verify final context state
     assert context_aggregator.user().context.get_messages() == [
+        {"role": "system", "content": "This is system prompt"},
         {"role": "user", "content": "Hello User Aggregator!"},
         {"role": "assistant", "content": "Hello Assistant Aggregator!"},
     ]
@@ -103,7 +106,7 @@ async def test_user_speaking_frame_delay_cases():
         - Context is updated correctly for valid frames
     """
     messages = []
-    context = OpenAILLMContext(messages)
+    context = LLMContext(messages)
     context_aggregator = create_nvidia_context_aggregator(context, send_interims=True)
 
     pipeline = Pipeline([context_aggregator.user(), context_aggregator.assistant()])
@@ -140,10 +143,10 @@ async def test_user_speaking_frame_delay_cases():
         UserStartedSpeakingFrame,
         InterruptionFrame,
         InterruptionFrame,
-        OpenAILLMContextFrame,  # from first interim after UserStartedSpeakingFrame
-        OpenAILLMContextFrame,  # from final transcription
+        LLMContextFrame,  # from first interim after UserStartedSpeakingFrame
+        LLMContextFrame,  # from final transcription
         UserStoppedSpeakingFrame,
-        OpenAILLMContextFrame,  # From assistant response
+        LLMContextFrame,  # From assistant response
     ]
 
     await run_pipecat_test(
@@ -173,7 +176,7 @@ async def test_multiple_interims_with_final_transcription():
         - Message history maintains correct order
     """
     messages = []
-    context = OpenAILLMContext(messages)
+    context = LLMContext(messages)
     context_aggregator = create_nvidia_context_aggregator(context, send_interims=True)
 
     pipeline = Pipeline([context_aggregator.user(), context_aggregator.assistant()])
@@ -205,12 +208,12 @@ async def test_multiple_interims_with_final_transcription():
         InterruptionFrame,
         InterruptionFrame,
         InterruptionFrame,
-        OpenAILLMContextFrame,  # From interim 1
-        OpenAILLMContextFrame,  # From interim 2
-        OpenAILLMContextFrame,  # From interim 3
-        OpenAILLMContextFrame,  # From final transcription
+        LLMContextFrame,  # From interim 1
+        LLMContextFrame,  # From interim 2
+        LLMContextFrame,  # From interim 3
+        LLMContextFrame,  # From final transcription
         UserStoppedSpeakingFrame,
-        OpenAILLMContextFrame,  # From assistant response
+        LLMContextFrame,  # From assistant response
     ]
 
     await run_pipecat_test(
@@ -239,7 +242,7 @@ async def test_transcription_after_user_stopped_speaking():
         - Message history maintains proper sequence
     """
     messages = []
-    context = OpenAILLMContext(messages)
+    context = LLMContext(messages)
     context_aggregator = create_nvidia_context_aggregator(context, send_interims=True)
 
     pipeline = Pipeline([context_aggregator.user(), context_aggregator.assistant()])
@@ -268,11 +271,11 @@ async def test_transcription_after_user_stopped_speaking():
     expected_down_frames = [
         UserStartedSpeakingFrame,
         InterruptionFrame,
-        OpenAILLMContextFrame,  # From first interim
+        LLMContextFrame,  # From first interim
         UserStoppedSpeakingFrame,
         InterruptionFrame,
-        OpenAILLMContextFrame,  # From final after UserStoppedSpeakingFrame
-        OpenAILLMContextFrame,  # From assistant response
+        LLMContextFrame,  # From final after UserStoppedSpeakingFrame
+        LLMContextFrame,  # From assistant response
     ]
 
     await run_pipecat_test(
@@ -302,13 +305,13 @@ async def test_no_interim_frames():
         - Assistant responses are processed correctly
     """
     messages = [{"role": "system", "content": "This is system prompt"}]
-    context = OpenAILLMContext(messages)
+    context = LLMContext(messages)
     context_aggregator = create_nvidia_context_aggregator(context, send_interims=False)
     pipeline = Pipeline([context_aggregator.user(), context_aggregator.assistant()])
 
     frames_to_send = [
         UserStartedSpeakingFrame(),
-        LLMMessagesFrame(messages),
+        LLMMessagesUpdateFrame(messages=messages, run_llm=True),
         # These interim frames should be ignored due to send_interims=False
         RivaInterimTranscriptionFrame("Hello", "", time_now_iso8601(), None, stability=1.0),
         RivaInterimTranscriptionFrame("Hello there", "", time_now_iso8601(), None, stability=1.0),
@@ -327,10 +330,10 @@ async def test_no_interim_frames():
     expected_down_frames = [
         UserStartedSpeakingFrame,
         InterruptionFrame,
-        LLMMessagesFrame,
-        OpenAILLMContextFrame,  # Only from final transcription
+        OpenAILLMContextFrame,  # From initial LLMMessagesUpdateFrame(run_llm=True) - base aggregator
+        LLMContextFrame,  # Only from final transcription - our custom aggregator
         UserStoppedSpeakingFrame,
-        OpenAILLMContextFrame,  # From assistant response
+        LLMContextFrame,  # From assistant response
     ]
 
     await run_pipecat_test(
@@ -384,7 +387,7 @@ async def test_get_truncated_context():
         },
         {"role": "user", "content": "thanks, Bye!"},
     ]
-    context = OpenAILLMContext(messages)
+    context = LLMContext(messages)
     user = NvidiaUserContextAggregator(context=context, chat_history_limit=2)
     truncated_context = await user.get_truncated_context()
     assert truncated_context.get_messages() == [
@@ -400,4 +403,119 @@ async def test_get_truncated_context():
             "representation for creating virtual environments and user experiences",
         },
         {"role": "user", "content": "thanks, Bye!"},
+    ]
+
+
+@pytest.mark.asyncio()
+async def test_get_truncated_context_preserve_prompt_messages():
+    """Tests context truncation with preserve_prompt_messages functionality.
+
+    Tests the get_truncated_context() method of NvidiaUserContextAggregator
+    with different values of preserve_prompt_messages parameter, specifically
+    testing the code that separates initial prompt messages from the rest
+    (lines 258-265 in nvidia_context_aggregator.py).
+
+    The test verifies:
+        - preserve_prompt_messages=0: No initial messages preserved via that mechanism
+          (note: system messages are always preserved regardless of limit)
+        - preserve_prompt_messages=1: First message preserved (default)
+        - preserve_prompt_messages=2: First two messages preserved (Nemotron models)
+        - Initial messages are correctly separated from remaining messages
+        - Truncation still works correctly on remaining messages
+    """
+    # Test case 1: preserve_prompt_messages=0 (no initial preservation)
+    messages = [
+        {"role": "system", "content": "System prompt"},
+        {"role": "user", "content": "First user message"},
+        {"role": "assistant", "content": "First assistant response"},
+        {"role": "user", "content": "Second user message"},
+        {"role": "assistant", "content": "Second assistant response"},
+        {"role": "user", "content": "Third user message"},
+        {"role": "assistant", "content": "Third assistant response"},
+    ]
+    context = LLMContext(messages)
+    user = NvidiaUserContextAggregator(context=context, chat_history_limit=2, preserve_prompt_messages=0)
+    truncated_context = await user.get_truncated_context()
+    # With preserve_prompt_messages=0, no initial messages are preserved via that mechanism
+    # However, system messages are always preserved regardless of limit (per docstring)
+    # Only the last 2 turns should be kept from the remaining messages
+    assert truncated_context.get_messages() == [
+        {"role": "system", "content": "System prompt"},
+        {"role": "user", "content": "Second user message"},
+        {"role": "assistant", "content": "Second assistant response"},
+        {"role": "user", "content": "Third user message"},
+        {"role": "assistant", "content": "Third assistant response"},
+    ]
+
+    # Test case 2: preserve_prompt_messages=1 (default - preserve system message)
+    context2 = LLMContext(messages)
+    user2 = NvidiaUserContextAggregator(context=context2, chat_history_limit=2, preserve_prompt_messages=1)
+    truncated_context2 = await user2.get_truncated_context()
+    # With preserve_prompt_messages=1, first message (system) should be preserved
+    assert truncated_context2.get_messages() == [
+        {"role": "system", "content": "System prompt"},
+        {"role": "user", "content": "Second user message"},
+        {"role": "assistant", "content": "Second assistant response"},
+        {"role": "user", "content": "Third user message"},
+        {"role": "assistant", "content": "Third assistant response"},
+    ]
+
+    # Test case 3: preserve_prompt_messages=2 (Nemotron - preserve system + first user)
+    context3 = LLMContext(messages)
+    user3 = NvidiaUserContextAggregator(context=context3, chat_history_limit=2, preserve_prompt_messages=2)
+    truncated_context3 = await user3.get_truncated_context()
+    # With preserve_prompt_messages=2, first two messages should be preserved
+    assert truncated_context3.get_messages() == [
+        {"role": "system", "content": "System prompt"},
+        {"role": "user", "content": "First user message"},
+        {"role": "user", "content": "Second user message"},
+        {"role": "assistant", "content": "Second assistant response"},
+        {"role": "user", "content": "Third user message"},
+        {"role": "assistant", "content": "Third assistant response"},
+    ]
+
+    # Test case 4: preserve_prompt_messages=2 with more messages
+    messages4 = [
+        {"role": "system", "content": "System prompt"},
+        {"role": "user", "content": "First user message"},
+        {"role": "assistant", "content": "First assistant response"},
+        {"role": "user", "content": "Second user message"},
+        {"role": "assistant", "content": "Second assistant response"},
+        {"role": "user", "content": "Third user message"},
+        {"role": "assistant", "content": "Third assistant response"},
+        {"role": "user", "content": "Fourth user message"},
+        {"role": "assistant", "content": "Fourth assistant response"},
+    ]
+    context4 = LLMContext(messages4)
+    user4 = NvidiaUserContextAggregator(context=context4, chat_history_limit=2, preserve_prompt_messages=2)
+    truncated_context4 = await user4.get_truncated_context()
+    # First 2 messages preserved, then last 2 turns from remaining messages
+    assert truncated_context4.get_messages() == [
+        {"role": "system", "content": "System prompt"},
+        {"role": "user", "content": "First user message"},
+        {"role": "user", "content": "Third user message"},
+        {"role": "assistant", "content": "Third assistant response"},
+        {"role": "user", "content": "Fourth user message"},
+        {"role": "assistant", "content": "Fourth assistant response"},
+    ]
+
+    # Test case 5: Empty context (edge case)
+    context5 = LLMContext([])
+    user5 = NvidiaUserContextAggregator(context=context5, chat_history_limit=2, preserve_prompt_messages=2)
+    truncated_context5 = await user5.get_truncated_context()
+    # Empty context should return empty context
+    assert truncated_context5.get_messages() == []
+
+    # Test case 6: preserve_prompt_messages greater than total messages
+    messages6 = [
+        {"role": "system", "content": "System prompt"},
+        {"role": "user", "content": "First user message"},
+    ]
+    context6 = LLMContext(messages6)
+    user6 = NvidiaUserContextAggregator(context=context6, chat_history_limit=2, preserve_prompt_messages=5)
+    truncated_context6 = await user6.get_truncated_context()
+    # All messages should be preserved if preserve_prompt_messages > total messages
+    assert truncated_context6.get_messages() == [
+        {"role": "system", "content": "System prompt"},
+        {"role": "user", "content": "First user message"},
     ]

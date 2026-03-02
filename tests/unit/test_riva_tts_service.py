@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD 2-Clause License
 
-"""Unit tests for the RivaTTSService.
+"""Unit tests for the NemotronTTSService.
 
-This module contains tests for the RivaTTSService class, including initialization,
+This module contains tests for the NemotronTTSService class, including initialization,
 TTS frame generation, audio frame handling, and integration tests.
 """
 
@@ -15,12 +15,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pipecat.frames.frames import TTSAudioRawFrame, TTSStartedFrame, TTSStoppedFrame, TTSTextFrame
 from pipecat.transcriptions.language import Language
+from pipecat.utils.text.base_text_aggregator import AggregationType
 
-from nvidia_pipecat.services.riva_speech import RivaTTSService
+from nvidia_pipecat.services.riva_speech import NemotronTTSService
 
 
-class TestRivaTTSService(unittest.TestCase):
-    """Test suite for RivaTTSService functionality."""
+class TestNemotronTTSService(unittest.TestCase):
+    """Test suite for NemotronTTSService functionality."""
 
     @patch("nvidia_pipecat.services.riva_speech.riva.client.Auth")
     @patch("nvidia_pipecat.services.riva_speech.riva.client.SpeechSynthesisService")
@@ -54,8 +55,8 @@ class TestRivaTTSService(unittest.TestCase):
         # The service expects a list/iterable that it can call iter() on
         mock_service_instance.synthesize_online.return_value = [mock_audio_frame]
 
-        # Create an instance of RivaTTSService
-        service = RivaTTSService(api_key="test_api_key")
+        # Create an instance of NemotronTTSService
+        service = NemotronTTSService(api_key="test_api_key")
 
         # Ensure the service has the right mock
         service._service = mock_service_instance
@@ -67,15 +68,16 @@ class TestRivaTTSService(unittest.TestCase):
                 frames.append(frame)
 
             # Assert
-            self.assertEqual(
-                len(frames), 4
-            )  # Should yield 4 frames: TTSStartedFrame, TTSTextFrame, TTSAudioRawFrame, TTSStoppedFrame
+            # Should yield 5 frames: TTSStartedFrame, TTSTextFrame, TTSAudioRawFrame, TTSStoppedFrame
+            # Note: An extra TTSAudioRawFrame (silence) is added at the end to prevent audio cut-off
+            self.assertEqual(len(frames), 5)
             self.assertIsInstance(frames[0], TTSStartedFrame)
             self.assertIsInstance(frames[1], TTSTextFrame)
             self.assertEqual(frames[1].text, "Hello, world!")
             self.assertIsInstance(frames[2], TTSAudioRawFrame)
             self.assertEqual(frames[2].audio, mock_audio_data)
-            self.assertIsInstance(frames[3], TTSStoppedFrame)
+            self.assertIsInstance(frames[3], TTSAudioRawFrame)  # Silence frame
+            self.assertIsInstance(frames[4], TTSStoppedFrame)
 
         # Run the async test
         asyncio.run(run_test())
@@ -102,7 +104,7 @@ class TestRivaTTSService(unittest.TestCase):
 
         mock_service_instance.synthesize_online.side_effect = lambda *args, **kwargs: _synth_response()
 
-        service = RivaTTSService(api_key="test_api_key")
+        service = NemotronTTSService(api_key="test_api_key")
         service._service = mock_service_instance
 
         # Build long text exercising both whitespace splits and hard splits (no whitespace region)
@@ -137,9 +139,10 @@ class TestRivaTTSService(unittest.TestCase):
             reconstructed_compact = re.sub(r"\s+", "", "".join(chunk_texts))
             assert original_compact == reconstructed_compact
 
-            # One audio frame per call
+            # One audio frame per synthesize call, plus one silence frame at the end
+            # Note: An extra TTSAudioRawFrame (silence) is added at the end to prevent audio cut-off
             audio_frames = [f for f in frames if isinstance(f, TTSAudioRawFrame)]
-            assert len(audio_frames) == len(call_args)
+            assert len(audio_frames) == len(call_args) + 1
 
             # Frame envelope
             assert isinstance(frames[0], TTSStartedFrame)
@@ -177,8 +180,8 @@ class TestRivaTTSService(unittest.TestCase):
         # Return a regular list for synthesize_online
         mock_service_instance.synthesize_online.return_value = [mock_audio_frame]
 
-        # Create an instance of RivaTTSService
-        service = RivaTTSService(api_key="test_api_key")
+        # Create an instance of NemotronTTSService
+        service = NemotronTTSService(api_key="test_api_key")
         service._service = mock_service_instance
         service.start_processing_metrics = AsyncMock()
         service.stop_processing_metrics = AsyncMock()
@@ -188,7 +191,7 @@ class TestRivaTTSService(unittest.TestCase):
         async def mock_run_tts(text):
             # This is the sequence of frames that would be yielded by run_tts
             yield TTSStartedFrame()
-            yield TTSTextFrame(text)
+            yield TTSTextFrame(text, aggregated_by=AggregationType.SENTENCE)
             yield mock_audio_frame
             yield TTSStoppedFrame()
 
@@ -196,7 +199,7 @@ class TestRivaTTSService(unittest.TestCase):
         with patch.object(service, "run_tts", side_effect=mock_run_tts):
             # Act
             async def run_test():
-                await service._push_tts_frames("Hello, world!")
+                await service._push_tts_frames(TTSTextFrame("Hello, world!", aggregated_by=AggregationType.SENTENCE))
 
                 # Assert
                 # Check that the necessary methods were called
@@ -241,7 +244,7 @@ class TestRivaTTSService(unittest.TestCase):
         test_dictionary = {"word": "pronunciation"}
         test_audio_prompt_file = "test_audio.wav"
         # Test initialization with different parameters
-        service = RivaTTSService(
+        service = NemotronTTSService(
             api_key=test_api_key,
             server=test_server,
             voice_id=test_voice_id,
@@ -273,8 +276,8 @@ class TestRivaTTSService(unittest.TestCase):
         )
 
     @patch("nvidia_pipecat.services.riva_speech.riva.client.Auth")
-    def test_riva_error_handling(self, mock_auth):
-        """Tests error handling when Riva service initialization fails.
+    def test_nemotron_speech_tts_error_handling(self, mock_auth):
+        """Tests error handling when Nemotron Speech TTS service initialization fails.
 
         Tests the service's behavior when encountering initialization errors.
 
@@ -287,14 +290,14 @@ class TestRivaTTSService(unittest.TestCase):
             - Cleanup behavior
             - Service state after error
         """
-        # Test error handling when Riva service initialization fails
+        # Test error handling when Nemotron Speech TTS service initialization fails
         mock_auth.side_effect = Exception("Connection failed")
 
         # Assert that exception is raised and propagated
         with self.assertRaises(Exception) as context:
-            RivaTTSService(api_key="test_api_key")
+            NemotronTTSService(api_key="test_api_key")
 
-        self.assertTrue("Missing module: Connection failed" in str(context.exception))
+        self.assertIn("Missing module: Connection failed", str(context.exception))
 
     @patch("nvidia_pipecat.services.riva_speech.riva.client.Auth")
     @patch("nvidia_pipecat.services.riva_speech.riva.client.SpeechSynthesisService")
@@ -312,13 +315,13 @@ class TestRivaTTSService(unittest.TestCase):
             - Consistency of capability flag
         """
         # Test that the service can generate metrics
-        service = RivaTTSService(api_key="test_api_key")
+        service = NemotronTTSService(api_key="test_api_key")
         self.assertTrue(service.can_generate_metrics())
 
 
 @pytest.mark.asyncio
-async def test_riva_tts_integration():
-    """Tests integration of RivaTTSService components.
+async def test_nemotron_speech_tts_integration():
+    """Tests integration of NemotronTTSService components.
 
     Tests the complete flow of the TTS service in an integrated environment.
 
@@ -345,7 +348,7 @@ async def test_riva_tts_integration():
         mock_instance.synthesize_online.return_value = [audio_frame1, audio_frame2]
 
         # Initialize service and call its methods
-        service = RivaTTSService(api_key="test_api_key")
+        service = NemotronTTSService(api_key="test_api_key")
         service._service = mock_instance
 
         # Simulate running the service
@@ -354,13 +357,16 @@ async def test_riva_tts_integration():
             collected_frames.append(frame)
 
         # Verify the expected frames were produced
-        assert len(collected_frames) == 5  # Started, TextFrame, 2 audio chunks, stopped
+        # Started, TextFrame, 2 audio chunks, silence frame, stopped
+        # Note: An extra TTSAudioRawFrame (silence) is added at the end to prevent audio cut-off
+        assert len(collected_frames) == 6
         assert isinstance(collected_frames[0], TTSStartedFrame)
         assert isinstance(collected_frames[1], TTSTextFrame)
         assert collected_frames[1].text == "Test sentence for TTS"
         assert isinstance(collected_frames[2], TTSAudioRawFrame)
         assert isinstance(collected_frames[3], TTSAudioRawFrame)
-        assert isinstance(collected_frames[4], TTSStoppedFrame)
+        assert isinstance(collected_frames[4], TTSAudioRawFrame)  # Silence frame
+        assert isinstance(collected_frames[5], TTSStoppedFrame)
 
         # Verify audio content
         assert collected_frames[2].audio == b"audio_chunk_1"

@@ -1,5 +1,5 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: BSD 2-Clause License
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 # limitations under the License.
 general:
   use_uvloop: true
+  # Comment out if not using Phoenix tracing and logging
   telemetry:
     tracing:
       phoenix:
@@ -31,41 +32,42 @@ general:
 functions:
   get_menu:
     _type: get_menu
-    file_path: "menu.json"  # You can change this to any path you want
+    file_path: "menu.json"  # Change this to path to your menu.json file
     natural_phrases:
       - "Let me check the menu for you."
       - "Sure, let me pull up the full menu."
       - "Alright, lets see what we have got today."
   get_price:
     _type: get_price
-    file_path: "menu.json"  # You can change this to any path you want
+    file_path: "menu.json"  # Change this to path to your menu.json file
     natural_phrases:
       - "Let me check the price for you."
       - "Sure, checking what that costs."
       - "Alright, lets get the price for that one."
   add_to_cart:
     _type: add_to_cart
-    file_path: "menu.json"
+    file_path: "menu.json" # Change this to path to your menu.json file
     natural_phrases:
       - "Let me add that to your cart."
       - "Alright, I have added it to your cart."
       - "Sure thing, adding to your cart."
   remove_from_cart:
     _type: remove_from_cart
-    file_path: "menu.json"
+    file_path: "menu.json"  # Change this to path to your menu.json file
     natural_phrases:
-      - "Let me remove that from your cart."
+      - "Let me remove that from your cart."  
       - "Alright, removing from your cart."
       - "Sure, taking it out of your cart."
   clear_cart:
     _type: clear_cart
+    file_path: "menu.json"  # Change this to path to your menu.json file
     natural_phrases:
       - "Alright, clearing your cart."
       - "Emptying your cart."
       - "Ok, removing everything from your cart."
   view_cart:
     _type: view_cart
-    file_path: "menu.json"
+    file_path: "menu.json"  # Change this to path to your menu.json file
     natural_phrases:
       - "Let me show you what's in your cart."
       - "Alright, let me check your cart."
@@ -73,9 +75,13 @@ functions:
 llms:
   nim_llm:
     _type: nim
-    base_url: "http://nvidia-llm:8000"
+    # Comment this out if you are using LLM from NIM API endpoint
+    base_url: "http://nvidia-llm:8000" # Change this to the URL of your local NVIDIA LLM service
     model_name: meta/llama-3.1-70b-instruct
+    # Uncomment if you are using LLM from NIM API endpoint
+    # api_key: ${NVIDIA_API_KEY}
     temperature: 0.0
+    max_tokens: 2048
   openai_llm:
     _type: openai
     model_name: gpt-3.5-turbo
@@ -98,8 +104,18 @@ workflow:
   llm_name: nim_llm
   verbose: true
   retry_parsing_errors: true
-  max_retries: 1
+  max_retries: 3 
+  max_execution_time: 60  # Prevent runaway executions
+  max_iterations: 10  # Limit conversation turns to prevent token overflow
+  trim_messages: true  # Enable conversation history trimming
+  trim_strategy: "keep_recent"  # Keep only recent messages
+  max_messages: 5  
   additional_instructions: |
+    "CRITICAL: Every plan step MUST have an evidence object with exactly three keys: placeholder, tool, and tool_input. Never use an empty evidence object (use empty placeholder, tool, and tool_input instead)."
+    "For steps that DO require a tool: use placeholder like #E1, tool exactly one of get_menu, get_price, add_to_cart, remove_from_cart, clear_cart, view_cart, and tool_input as a JSON object with the required keys for that tool."
+    "For steps that do NOT require a tool call (e.g. greeting, closing): use placeholder empty string, tool empty string, and tool_input empty object."
+    "Do NOT put quotes around the evidence object. Do NOT escape quotes inside it."
+    "After executing all tools, provide the final answer to the user as plain text (no JSON, no markdown)."
     "### ORDER OF TASKS"
     "1. Recommend something from the menu"
     "2. Ask if the user wants to add anything to the cart"
@@ -109,7 +125,8 @@ workflow:
     "6. If user wants to proceed and you have delivery address and delivery time, ask for the payment method"
     "7. After payment, confirm the order and thank the user for the order"
     "### CONVERSATION CONSTRAINTS"
-    "STRICTLY answer in 1-2 sentences or less than 200 characters. This must be followed very rigorously; it is crucial."
+    "STRICTLY answer in 1-2 sentences when speaking directly to the user. Keep responses concise and conversational."
+    "When providing information from tools (menu, inventory, cart), you may use more detail to be helpful."
     "Output must be plain text, unformatted, and without any special characters - suitable for direct conversion to speech."
     "DO NOT use bullet points, lists, code samples, or headers in your spoken responses."
     "STRICTLY be short, concise, and to the point. Avoid elaboration, explanation, or repetition."
@@ -117,21 +134,14 @@ workflow:
     "Silently correct likely transcription errors by inferring the intended meaning without saying `did you mean..` or `I think you meant..`. Prioritize what the user meant, not just the literal words."
     "### OPENING PROTOCOL: STRICTLY START CONVERSATION WITH 'Thank you for calling GreenForce Garden. What can I do for you today?'"
     "### CLOSING PROTOCOL: End with either 'Have a green day!' or 'Have a good one.' Use one consistently per call."
-    "### YOU ARE ..."
-    "You are Flora, the voice of 'GreenForce Garden', a San Francisco flower shop powered by NVIDIA GPUs."
-    "You're cool, upbeat, and love making people smile with your floral know-how."
-    "You embody warmth, expertise, and dedication to creating a perfect floral experience."
-    "### CONVERSATION GUIDELINES"
-    "CORE RESPONSIBILITIES: Order Management, Consultation, Inventory Guidance, Delivery Coordination, Customer Care, Giving Fun Advice"
-    "While taking orders, have occasion understanding, ask for recipient details, customer preferences, and delivery planning."
-    "STRICTLY Collect complete contact information for order updates."
-    "SUGGEST cards with personal messages."
-    "SUGGEST seasonal recommendations (e.g., spring: tulips, pastels; romance: roses, peonies) and occasion-specific details (e.g., elegant wrapping)."
-    "SUGGEST complementary items: vases, chocolates, cards. Also provide care instructions for long-lasting enjoyment."
-    "STRICTLY Confirm all order details before finalizing: flowers, colors, delivery address, timing."
-    "STRICTLY Provide ORDER CONFIRMATION with ESTIMATED DELIVERY TIMES."
-    "Offer MULTIPLE PAYMENT OPTIONS (e.g., card, cash, online) and confirm SECURE PROCESSING."
-    "STRICTLY If you are unsure about a request, ask clarifying questions to ensure you understand before responding."
+  # Solver-only: persona and reply shaping
+  additional_solver_instructions: |
+    "### YOU ARE FLORA"
+    "You are Flora, the voice of GreenForce Garden, a San Francisco flower shop. You are cool, upbeat, and love making people smile with your floral know-how. Embody warmth, expertise, and dedication to creating a perfect floral experience."
+    "### OPENING: On the first turn or greeting, say exactly: 'Thank you for calling GreenForce Garden. What can I do for you today?'"
+    "### CLOSING: End with either 'Have a green day!' or 'Have a good one.' Use one consistently per call."
+    "### STYLE: Answer in 1-2 sentences when speaking to the user. Plain text only, suitable for speech. No bullet points, lists, or markdown. Be short and conversational."
+    "### GUIDELINES: Suggest seasonal picks and occasion-specific details. Suggest cards, vases, complementary items and care instructions. Confirm order details and delivery times. Offer multiple payment options. If unsure, ask clarifying questions."
 eval:
   general:
     output_dir: eval_output

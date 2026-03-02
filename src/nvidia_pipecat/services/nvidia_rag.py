@@ -11,6 +11,8 @@ by incorporating knowledge from external documents. Features include:
     - Configurable retrieval parameters
 """
 
+from __future__ import annotations
+
 import json
 
 import httpx
@@ -21,14 +23,15 @@ from pipecat.frames.frames import (
     EndFrame,
     ErrorFrame,
     Frame,
+    InterruptionFrame,
+    LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
-    LLMMessagesFrame,
-    StartInterruptionFrame,
+    LLMMessagesUpdateFrame,
     TextFrame,
     UserImageRawFrame,
 )
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext, OpenAILLMContextFrame
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.openai.llm import OpenAILLMService
 
@@ -168,11 +171,33 @@ class NvidiaRAGService(OpenAILLMService):
             await NvidiaRAGService._shared_session.aclose()
             NvidiaRAGService._shared_session = None
 
+    def _content_to_text(self, content) -> str:
+        """Convert message content to text string.
+
+        Handles both string content and structured content (list of parts).
+
+        Args:
+            content: Either a string or a list of content parts
+
+        Returns:
+            str: The text content extracted from the message
+        """
+        if isinstance(content, str):
+            return content
+        elif isinstance(content, list):
+            # Extract text from structured content parts
+            text_parts = []
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    text_parts.append(part.get("text", ""))
+            return " ".join(text_parts)
+        return ""
+
     async def _get_rag_response(self, request_json: dict):
         resp = await self.shared_session.post(f"{self.rag_server_url}/generate", json=request_json)
         return resp
 
-    async def _process_context(self, context: OpenAILLMContext):
+    async def _process_context(self, context: LLMContext):
         """Processes LLM context through RAG pipeline.
 
         Args:
@@ -186,9 +211,10 @@ class NvidiaRAGService(OpenAILLMService):
             chat_details = []
 
             for msg in messages:
-                if msg["role"] != "system" and msg["role"] != "user" and msg["role"] != "assistant":
-                    raise Exception(f"Unexpected role {msg['role']} found!")
-                chat_details.append({"role": msg["role"], "content": msg["content"]})
+                role = msg.get("role")
+                if role not in ("system", "user", "assistant"):
+                    raise Exception(f"Unexpected role {role} found!")
+                chat_details.append({"role": role, "content": self._content_to_text(msg.get("content", ""))})
 
             if self.suffix_prompt:
                 for i in range(len(chat_details) - 1, -1, -1):
@@ -266,7 +292,7 @@ class NvidiaRAGService(OpenAILLMService):
                         if message:
                             await self.push_frame(TextFrame(message))
                     except Exception as e:
-                        await self.push_error(ErrorFrame("Internal error in RAG stream: " + str(e)))
+                        await self.push_frame(ErrorFrame("Internal error in RAG stream: " + str(e)))
             finally:
                 await resp.aclose()
 
@@ -274,7 +300,10 @@ class NvidiaRAGService(OpenAILLMService):
 
         except Exception as e:
             logger.error(f"An error occurred in http request to RAG endpoint, Error:  {e}")
-            await self.push_error(ErrorFrame("An error occurred in http request to RAG endpoint, Error: " + str(e)))
+            await self.push_frame(
+                ErrorFrame("An error occurred in http request to RAG endpoint, Error: " + str(e)),
+                FrameDirection.UPSTREAM,
+            )
 
     async def _update_settings(self, settings):
         """Updates service settings.
@@ -308,7 +337,7 @@ class NvidiaRAGService(OpenAILLMService):
                 case _:
                     logger.warning(f"Unknown setting for NvidiaRAG service: {setting}")
 
-    async def _process_context_and_frames(self, context: OpenAILLMContext):
+    async def _process_context_and_frames(self, context: LLMContext):
         """Process context and handle start/end frames with metrics."""
         await self.push_frame(LLMFullResponseStartFrame())
         await self.start_processing_metrics()
@@ -328,19 +357,20 @@ class NvidiaRAGService(OpenAILLMService):
         context = None
         if isinstance(frame, NvidiaRAGSettingsFrame):
             await self._update_settings(frame.settings)
-        if isinstance(frame, OpenAILLMContextFrame):
-            context: OpenAILLMContext = frame.context
-        elif isinstance(frame, LLMMessagesFrame):
-            context = OpenAILLMContext.from_messages(frame.messages)
+        if isinstance(frame, LLMContextFrame):
+            context = frame.context
+        elif isinstance(frame, LLMMessagesUpdateFrame):
+            context = LLMContext(messages=frame.messages)
         elif isinstance(frame, UserImageRawFrame):
-            context = OpenAILLMContext()
-            context.add_image_frame_message(
+            img_msg = await LLMContext.create_image_message(
+                role="user",
                 format=frame.format,
                 size=frame.size,
                 image=frame.image,
                 text=getattr(frame, "text", None),
             )
-        elif isinstance(frame, StartInterruptionFrame):
+            context = LLMContext(messages=[img_msg])
+        elif isinstance(frame, InterruptionFrame):
             if self._current_task is not None:
                 await self.cancel_task(self._current_task)
             await self._start_interruption()

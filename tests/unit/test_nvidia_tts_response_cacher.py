@@ -68,7 +68,7 @@ async def test_nvidia_tts_response_cacher():
         LLMFullResponseEndFrame,
     ]
 
-    received_down_frames, received_up_frames = await run_pipecat_test(
+    received_down_frames, _ = await run_pipecat_test(
         pipeline,
         frames_to_send=frames_to_send,
         expected_down_frames=expected_down_frames,

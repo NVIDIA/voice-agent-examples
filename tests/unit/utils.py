@@ -420,14 +420,6 @@ async def run_interactive_test(
         if send_end_frame:
             await task.queue_frame(EndFrame())
 
-        # await asyncio.sleep(1.5)
-        # debug = ""
-        # for t in processor.get_task_manager().current_tasks():
-        #     debug += f"\nMy Task {t.get_name()} is still running."
-
-        # assert False, debug
-        # print(debug)
-
     runner = PipelineRunner()
     await asyncio.gather(runner.run(task), run_test())
 

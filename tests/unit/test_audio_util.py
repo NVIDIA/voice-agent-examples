@@ -14,10 +14,9 @@ import pytest
 from pipecat.frames.frames import InputAudioRawFrame, TextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.tests.utils import SleepFrame
-from pipecat.transports.base_transport import TransportParams
 
 from nvidia_pipecat.processors.audio_util import AudioRecorder
-from nvidia_pipecat.utils.logging import setup_default_ace_logging
+from nvidia_pipecat.utils.logging import setup_default_logging
 from tests.unit.utils import SinusWaveProcessor, ignore, ignore_ids, run_test
 
 
@@ -27,21 +26,20 @@ async def test_audio_recorder():
 
     Tests:
         - Audio frame processing from sine wave generator
-        - WAV file writing
-        - Sample rate conversion (16kHz to 24kHz)
+        - WAV file writing with sample rate from frame
         - Non-audio frame passthrough
 
     Raises:
         AssertionError: If audio file is not created or frame processing fails.
     """
-    setup_default_ace_logging(level="TRACE")
+    setup_default_logging(level="TRACE")
 
     # Delete tmp audio file if it exists
     TMP_FILE = Path("./tmp_file.wav")
     if TMP_FILE.exists():
         TMP_FILE.unlink()
 
-    recorder = AudioRecorder(output_file=str(TMP_FILE), params=TransportParams(audio_out_sample_rate=24000))
+    recorder = AudioRecorder(output_file=str(TMP_FILE), frame_type=InputAudioRawFrame)
     sinus = SinusWaveProcessor(duration=timedelta(seconds=0.3))
 
     frames_to_send = [

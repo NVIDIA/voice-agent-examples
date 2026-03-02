@@ -16,7 +16,7 @@ The processors handle:
 
 Also see:
     pipecat.processors.aggregators.llm_response
-    pipecat.processors.aggregators.openai_llm_context
+    pipecat.processors.aggregators.llm_context
 
 Classes:
     NvidiaAssistantContextAggregator: Handles assistant-specific context aggregation.
@@ -34,6 +34,7 @@ from loguru import logger
 from pipecat.frames.frames import (
     Frame,
     InterruptionFrame,
+    LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
     TranscriptionFrame,
@@ -44,13 +45,13 @@ from pipecat.frames.frames import (
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response import (
     LLMAssistantAggregatorParams,
     LLMAssistantContextAggregator,
     LLMUserAggregatorParams,
     LLMUserContextAggregator,
 )
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext, OpenAILLMContextFrame
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
 from nvidia_pipecat.frames.action import StartedPresenceUserActionFrame
@@ -64,7 +65,7 @@ class NvidiaAssistantContextAggregator(LLMAssistantContextAggregator):
     managing assistant responses and context updates based on interim/final transcripts.
 
     Args:
-        context (OpenAILLMContext): The context object to use.
+        context (LLMContext): The context object to use.
         expect_stripped_words (bool): Whether to expect preprocessed words. Defaults to True.
         **kwargs: Additional arguments passed to parent class.
 
@@ -75,7 +76,7 @@ class NvidiaAssistantContextAggregator(LLMAssistantContextAggregator):
         InterruptionFrame: Signals interruption
 
     Output Frames:
-        OpenAILLMContextFrame: Updated context with responses
+        LLMContextFrame: Updated context with responses
     """
 
     async def push_aggregation(self):
@@ -91,7 +92,7 @@ class NvidiaAssistantContextAggregator(LLMAssistantContextAggregator):
             None
 
         Typical usage example:
-            >>> context = OpenAILLMContext()
+            >>> context = LLMContext()
             >>> aggregator = NvidiaAssistantContextAggregator(context)
             >>> # Update existing response
             >>> context.add_message({"role": "assistant", "content": "initial response"})
@@ -107,7 +108,7 @@ class NvidiaAssistantContextAggregator(LLMAssistantContextAggregator):
             else:
                 self.context.add_message({"role": self._role, "content": self._aggregation})
             self._aggregation = ""
-            frame = OpenAILLMContextFrame(self.context)
+            frame = LLMContextFrame(self.context)
             await self.push_frame(frame)
             # Reset our accumulator state.
             await self.reset()
@@ -132,13 +133,14 @@ class NvidiaUserContextAggregator(LLMUserContextAggregator):
         InterruptionFrame: Conversation interruption
 
     Output Frames:
-        OpenAILLMContextFrame: Updated context with transcripts
+        LLMContextFrame: Updated context with transcripts
     """
 
     def __init__(
         self,
         send_interims: bool = True,
         chat_history_limit: int = 20,
+        preserve_prompt_messages: int = 1,
         **kwargs,
     ):
         """Initialize the NvidiaUserContextAggregator.
@@ -146,14 +148,18 @@ class NvidiaUserContextAggregator(LLMUserContextAggregator):
         Args:
             send_interims (bool, optional): Whether to send interim transcription frames. Defaults to True.
             chat_history_limit (int): Limits the number of turns in chat history,
+            preserve_prompt_messages (int): Number of initial prompt messages to always preserve.
+                Defaults to 1. Set to 2 for Nemotron models to preserve system and first user message.
             **kwargs: Additional keyword arguments passed to parent LLMUserContextAggregator.
         """
         super().__init__(**kwargs)
         self.send_interims = send_interims
         self.chat_history_limit = chat_history_limit
+        self.preserve_prompt_messages = preserve_prompt_messages
         self.last_transcript = None
         self._user_speaking = False
         self.seen_final = True
+        self._last_final_transcript = ""
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         """Process a frame for speculative speech handling.
@@ -188,11 +194,20 @@ class NvidiaUserContextAggregator(LLMUserContextAggregator):
                 logger.debug(f"Sent final transcript downstream to LLM from NvidiaUserContextAggregator {frame.text}")
                 self._aggregation = frame.text
                 await self.push_aggregation()
+                # Accumulate finals with proper spacing
+                if self._last_final_transcript:
+                    self._last_final_transcript += " " + frame.text
+                else:
+                    self._last_final_transcript = frame.text
             self.last_transcript = None
             self.seen_final = True
         elif isinstance(frame, RivaInterimTranscriptionFrame):
             # Process stable interim transcriptions during active speech and before first final result
-            if self.send_interims and (self._user_speaking or not self.seen_final) and frame.stability == 1.0:
+            if (
+                self.send_interims
+                and (self._user_speaking or not self.seen_final)
+                and abs(frame.stability - 1.0) < 1e-9
+            ):
                 logger.debug(f"Sent interim transcript downstream to LLM from NvidiaUserContextAggregator {frame.text}")
                 self._aggregation = frame.text
                 await self.push_aggregation()
@@ -210,21 +225,22 @@ class NvidiaUserContextAggregator(LLMUserContextAggregator):
                 self._user_speaking = False
             await super().process_frame(frame, direction)
 
-    async def get_truncated_context(self) -> OpenAILLMContext:
+    async def get_truncated_context(self) -> LLMContext:
         """Returns a truncated context limited to specified chat history size.
 
+        - Preserves initial messages (system + first user message) for Nemotron models
         - Counts conversation turns based on user-assistant exchanges
         - Preserves system and function messages regardless of limit
         - Processes messages in reverse order to maintain recent history
 
         Returns:
-            OpenAILLMContext: New context object containing truncated conversation
+            LLMContext: New context object containing truncated conversation
                 history, preserving system/function messages and most recent turns.
 
         Typical usage example:
             >>> aggregator = NvidiaUserContextAggregator(chat_history_limit=2)
             >>> # Context with 3 turns
-            >>> context = OpenAILLMContext()
+            >>> context = LLMContext()
             >>> # Turn 1
             >>> context.add_message({"role": "user", "content": "Turn 1 user"})
             >>> context.add_message({"role": "assistant", "content": "Turn 1 assistant"})
@@ -240,10 +256,17 @@ class NvidiaUserContextAggregator(LLMUserContextAggregator):
         """
         truncated_context = self.context
         if len(self.context.get_messages()) > 0:
-            truncated_context = OpenAILLMContext()
+            truncated_context = LLMContext()
+            all_messages = self.context.get_messages()
+
+            # Separate initial prompt messages to preserve from the rest
+            initial_messages = all_messages[: self.preserve_prompt_messages]
+            remaining_messages = all_messages[self.preserve_prompt_messages :]
+
+            # Process remaining messages in reverse order to maintain recent history
             truncated_context_messages = []
             current_size = 0
-            for context_message in reversed(self.context.get_messages()):
+            for context_message in reversed(remaining_messages):
                 if (
                     context_message["role"] == "user"
                     or context_message["role"] == "assistant"
@@ -256,7 +279,10 @@ class NvidiaUserContextAggregator(LLMUserContextAggregator):
                     if context_message["role"] == "user":
                         current_size = current_size + 1
                 truncated_context_messages.append(context_message)
-            truncated_context.set_messages(reversed(truncated_context_messages))
+
+            # Combine: initial messages + truncated recent messages (in correct order)
+            final_messages = initial_messages + list(reversed(truncated_context_messages))
+            truncated_context.set_messages(final_messages)
         return truncated_context
 
     async def push_aggregation(self):
@@ -270,10 +296,10 @@ class NvidiaUserContextAggregator(LLMUserContextAggregator):
         - After pushing, resets the aggregation state
 
         Output Frames:
-            OpenAILLMContextFrame: downstream after processing.
+            LLMContextFrame: downstream after processing.
 
         Typical usage example:
-            >>> context = OpenAILLMContext()
+            >>> context = LLMContext()
             >>> aggregator = NvidiaUserContextAggregator(context)
             >>> # Update existing response
             >>> context.add_message({"role": "user", "content": "initial query"})
@@ -284,15 +310,19 @@ class NvidiaUserContextAggregator(LLMUserContextAggregator):
             context_messages = self.context.get_messages()
             # Update existing message if same role, otherwise append new one
             if len(context_messages) > 0 and context_messages[-1]["role"] == self._role:
-                context_messages[-1]["content"] = self._aggregation
+                if self._last_final_transcript:
+                    context_messages[-1]["content"] = self._last_final_transcript + " " + self._aggregation
+                else:
+                    context_messages[-1]["content"] = self._aggregation
                 self.context.set_messages(context_messages)
             else:
+                self._last_final_transcript = ""
                 self.context.add_message({"role": self._role, "content": self._aggregation})
 
             self._aggregation = ""
             # Get truncated context and send downstream
             truncated_context = await self.get_truncated_context()
-            frame = OpenAILLMContextFrame(truncated_context)
+            frame = LLMContextFrame(truncated_context)
             # Send the interruption before the context frame
             await self.push_frame(InterruptionFrame())
             logger.debug(
@@ -383,7 +413,6 @@ class NvidiaTTSResponseCacher(FrameProcessor):
             # it also does not work if other "events" should trigger the cache release
             # (e.g. new frames by new processors).
             self._cache.clear()
-            # self.user_stopped_speaking = True
             await self.push_frame(frame, direction)
 
         # Handle user stop speaking - release cached responses
@@ -427,10 +456,11 @@ class NvidiaContextAggregatorPair:
 
 
 def create_nvidia_context_aggregator(
-    context: OpenAILLMContext,
+    context: LLMContext,
     assistant_expect_stripped_words: bool = True,
     send_interims: bool = False,
     chat_history_limit: int = 20,
+    preserve_prompt_messages: int = 1,
 ) -> NvidiaContextAggregatorPair:
     """Creates a pair of context aggregators for speculative speech processing.
 
@@ -448,13 +478,15 @@ def create_nvidia_context_aggregator(
         assistant_expect_stripped_words: Whether assistant expects preprocessed words
         send_interims: Whether to process interim transcriptions
         chat_history_limit: Maximum number of conversation turns to maintain
+        preserve_prompt_messages: Number of initial prompt messages to always preserve.
+            Defaults to 1. Set to 2 for Nemotron models to preserve system and first user message.
 
     Returns:
     NvidiaContextAggregatorPair: A paired set of user and assistant context aggregators configured for
     speculative speech processing.
 
     Typical usage example:
-        >>> context = OpenAILLMContext()
+        >>> context = LLMContext()
         >>> # Create aggregators with default settings
         >>> aggregators = create_nvidia_context_aggregator(context)
         >>>
@@ -463,6 +495,7 @@ def create_nvidia_context_aggregator(
         ...     context,
         ...     send_interims=True,  # Enable interim transcript processing
         ...     chat_history_limit=10,  # Keep shorter history
+        ...     preserve_prompt_messages=2,  # For Nemotron: preserve system + first user
         ...     assistant_expect_stripped_words=False  # Raw word processing
         ... )
         >>>
@@ -473,7 +506,11 @@ def create_nvidia_context_aggregator(
     # Create user aggregator with specified settings
     user_params = LLMUserAggregatorParams(aggregation_timeout=0.01)
     user = NvidiaUserContextAggregator(
-        send_interims=send_interims, context=context, params=user_params, chat_history_limit=chat_history_limit
+        send_interims=send_interims,
+        context=context,
+        params=user_params,
+        chat_history_limit=chat_history_limit,
+        preserve_prompt_messages=preserve_prompt_messages,
     )
     # Create assistant aggregator sharing context with user
     assistant_params = LLMAssistantAggregatorParams(expect_stripped_words=assistant_expect_stripped_words)

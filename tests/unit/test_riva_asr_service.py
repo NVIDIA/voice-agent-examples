@@ -1,9 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: BSD 2-Clause License
 
-"""Unit tests for the RivaASRService.
+"""Unit tests for the NemotronASRService.
 
-This module contains tests for the RivaASRService class, including initialization,
+This module contains tests for the NemotronASRService class, including initialization,
 ASR functionality, interruption handling, and integration tests.
 """
 
@@ -23,16 +23,16 @@ from pipecat.frames.frames import (
 from pipecat.transcriptions.language import Language
 
 from nvidia_pipecat.frames.riva import RivaInterimTranscriptionFrame
-from nvidia_pipecat.services.riva_speech import RivaASRService
+from nvidia_pipecat.services.riva_speech import NemotronASRService
 
 
-class TestRivaASRService(unittest.TestCase):
-    """Test suite for RivaASRService functionality."""
+class TestNemotronASRService(unittest.TestCase):
+    """Test suite for NemotronASRService functionality."""
 
     @patch("nvidia_pipecat.services.riva_speech.riva.client.Auth")
     @patch("nvidia_pipecat.services.riva_speech.riva.client.ASRService")
     def test_initialization_with_default_parameters(self, mock_asr_service, mock_auth):
-        """Tests RivaASRService initialization with default parameters.
+        """Tests NemotronASRService initialization with default parameters.
 
         Args:
             mock_asr_service: Mock for the ASR service.
@@ -45,7 +45,7 @@ class TestRivaASRService(unittest.TestCase):
             - Service parameter defaults
         """
         # Act
-        service = RivaASRService(api_key="test_api_key")
+        service = NemotronASRService(api_key="test_api_key")
 
         # Assert - only check types, not specific values
         self.assertIsInstance(service._language_code, Language)
@@ -70,7 +70,7 @@ class TestRivaASRService(unittest.TestCase):
     @patch("nvidia_pipecat.services.riva_speech.riva.client.Auth")
     @patch("nvidia_pipecat.services.riva_speech.riva.client.ASRService")
     def test_initialization_with_custom_parameters(self, mock_asr_service, mock_auth):
-        """Tests RivaASRService initialization with custom parameters.
+        """Tests NemotronASRService initialization with custom parameters.
 
         Args:
             mock_asr_service: Mock for the ASR service.
@@ -95,7 +95,7 @@ class TestRivaASRService(unittest.TestCase):
         test_boosted_score = 5.0
 
         # Act
-        service = RivaASRService(
+        service = NemotronASRService(
             api_key=test_api_key,
             server=test_server,
             function_id=test_function_id,
@@ -148,17 +148,17 @@ class TestRivaASRService(unittest.TestCase):
 
         # Act & Assert
         with self.assertRaises(Exception) as context:
-            RivaASRService(api_key="test_api_key")
+            NemotronASRService(api_key="test_api_key")
 
         # Verify the error message
-        self.assertTrue("Missing module: Connection failed" in str(context.exception))
+        self.assertIn("Missing module: Connection failed", str(context.exception))
 
     @patch("nvidia_pipecat.services.riva_speech.riva.client.Auth")
     @patch("nvidia_pipecat.services.riva_speech.riva.client.ASRService")
     def test_can_generate_metrics(self, mock_asr_service, mock_auth):
         """Test that the service can generate metrics."""
         # Arrange
-        service = RivaASRService(api_key="test_api_key")
+        service = NemotronASRService(api_key="test_api_key")
 
         # Act & Assert
         self.assertFalse(service.can_generate_metrics())
@@ -166,9 +166,9 @@ class TestRivaASRService(unittest.TestCase):
     @patch("nvidia_pipecat.services.riva_speech.riva.client.Auth")
     @patch("nvidia_pipecat.services.riva_speech.riva.client.ASRService")
     def test_start_method(self, mock_asr_service, mock_auth):
-        """Test the start method of RivaASRService."""
+        """Test the start method of NemotronASRService."""
         # Arrange
-        service = RivaASRService(api_key="test_api_key")
+        service = NemotronASRService(api_key="test_api_key")
 
         # Create a completed mock task for expected return value
         mock_task = MagicMock()
@@ -198,9 +198,9 @@ class TestRivaASRService(unittest.TestCase):
     @patch("nvidia_pipecat.services.riva_speech.riva.client.Auth")
     @patch("nvidia_pipecat.services.riva_speech.riva.client.ASRService")
     def test_stop_method(self, mock_asr_service, mock_auth):
-        """Test the stop method of RivaASRService."""
+        """Test the stop method of NemotronASRService."""
         # Arrange
-        service = RivaASRService(api_key="test_api_key")
+        service = NemotronASRService(api_key="test_api_key")
         service._stop_tasks = AsyncMock()
 
         # Create a mock EndFrame
@@ -219,9 +219,9 @@ class TestRivaASRService(unittest.TestCase):
     @patch("nvidia_pipecat.services.riva_speech.riva.client.Auth")
     @patch("nvidia_pipecat.services.riva_speech.riva.client.ASRService")
     def test_cancel_method(self, mock_asr_service, mock_auth):
-        """Test the cancel method of RivaASRService."""
+        """Test the cancel method of NemotronASRService."""
         # Arrange
-        service = RivaASRService(api_key="test_api_key")
+        service = NemotronASRService(api_key="test_api_key")
         service._stop_tasks = AsyncMock()
 
         # Create a mock CancelFrame
@@ -242,7 +242,7 @@ class TestRivaASRService(unittest.TestCase):
     def test_run_stt_yields_frames(self, mock_asr_service, mock_auth):
         """Test that run_stt method yields frames."""
         # Arrange
-        service = RivaASRService(api_key="test_api_key")
+        service = NemotronASRService(api_key="test_api_key")
         service._queue = AsyncMock()
 
         # Create a completed mock task and mock thread task handler
@@ -265,7 +265,7 @@ class TestRivaASRService(unittest.TestCase):
 
             # Assert
             service._queue.put.assert_called_once_with(audio_data)
-            # run_stt yields a single None frame for RivaASRService
+            # run_stt yields a single None frame for NemotronASRService
             self.assertEqual(len(frames), 1)
             self.assertIsNone(frames[0])
             service.create_task.assert_called_once_with(mock_thread_coro)
@@ -289,7 +289,7 @@ class TestRivaASRService(unittest.TestCase):
             - Response completion handling
         """
         # Arrange
-        service = RivaASRService(api_key="test_api_key")
+        service = NemotronASRService(api_key="test_api_key")
         service.push_frame = AsyncMock()
 
         # Use MagicMock instead of asyncio.Future to avoid event loop issues
@@ -331,7 +331,7 @@ class TestRivaASRService(unittest.TestCase):
     def test_handle_response_with_interim_transcript(self, mock_asr_service, mock_auth):
         """Test handling of ASR responses with interim transcript."""
         # Arrange
-        service = RivaASRService(api_key="test_api_key")
+        service = NemotronASRService(api_key="test_api_key")
         service.push_frame = AsyncMock()
 
         # Use AsyncMock directly instead of Future
@@ -365,7 +365,7 @@ class TestRivaASRService(unittest.TestCase):
             if (
                 isinstance(frame, RivaInterimTranscriptionFrame)
                 and frame.text == "This is an interim transcript"
-                and frame.stability == 1.0
+                and abs(frame.stability - 1.0) < 1e-9
             ):
                 found = True
                 break
@@ -387,7 +387,7 @@ class TestRivaASRService(unittest.TestCase):
             - State management during interruptions
         """
         # Arrange
-        service = RivaASRService(api_key="test_api_key", generate_interruptions=True)
+        service = NemotronASRService(api_key="test_api_key", generate_interruptions=True)
         service.push_frame = AsyncMock()
 
         # Use AsyncMock directly instead of Future
@@ -423,8 +423,8 @@ class TestRivaASRService(unittest.TestCase):
 
 
 @pytest.mark.asyncio
-async def test_riva_asr_integration():
-    """Tests integration of RivaASRService components.
+async def test_nemotron_speech_asr_integration():
+    """Tests integration of NemotronASRService components.
 
     Tests the complete flow of the ASR service including initialization,
     processing, and cleanup.
@@ -444,7 +444,7 @@ async def test_riva_asr_integration():
         mock_instance = mock_asr_service.return_value
 
         # Initialize service with interruptions enabled
-        service = RivaASRService(api_key="test_api_key", generate_interruptions=True)
+        service = NemotronASRService(api_key="test_api_key", generate_interruptions=True)
         service._asr_service = mock_instance
 
         # Set up the response queue

@@ -42,14 +42,15 @@ def parse_logs(log_file_path: str) -> dict[str, dict[str, list[float]]]:
     Organize by client stream and service type. Only include events after the last client start.
     """
     data = defaultdict(lambda: {"LLM": [], "TTS": [], "ASR": [], "LLM_FIRST_SENTENCE": [], "LLM_TOKENS_PER_SEC": []})
-    ttfb_pattern = r"streamId=([^\s]+)\s+-\s+(NvidiaLLMService|RivaTTSService)#\d+\s+TTFB:\s+([\d.]+)"
-    asr_pattern = r"streamId=([^\s]+)\s+-\s+RivaASRService#\d+\s+ASR compute latency:\s+([\d.]+)"
+    ttfb_pattern = r"streamId=([^\s]+)\s+-\s+(NvidiaLLMService|NemotronTTSService)#\d+\s+TTFB:\s+([\d.]+)"
+    asr_pattern = r"streamId=([^\s]+)\s+-\s+NemotronASRService#\d+\s+ASR compute latency:\s+([\d.]+)"
     first_sentence_pattern = (
         r"streamId=([^\s]+)\s+-\s+NvidiaLLMService#\d+\s+LLM first sentence generation time:\s+([\d.]+)"
     )
     completion_tokens_pattern = r"streamId=([^\s]+)\s+-\s+NvidiaLLMService#\d+\s+.*completion tokens:\s+(\d+)"
     processing_time_pattern = r"streamId=([^\s]+)\s+-\s+NvidiaLLMService#\d+\s+processing time:\s+([\d.]+)"
-    websocket_pattern = r".*Accepting WebSocket connection for stream ID client_\d+_\d+"
+    # Support both old and new log formats for client start detection
+    websocket_pattern = r"(Accepted WebSocket connection for stream ID \S+|\"WebSocket /ws/[^\s\"]+\"\s+\[accepted\])"
 
     # Track the most recent completion tokens for each streamId to match with processing time
     pending_completion_tokens = {}
@@ -93,7 +94,7 @@ def parse_logs(log_file_path: str) -> dict[str, dict[str, list[float]]]:
 
                         if service_type == "NvidiaLLMService":
                             data[client_id]["LLM"].append(ttfb_value)
-                        elif service_type == "RivaTTSService":
+                        elif service_type == "NemotronTTSService":
                             data[client_id]["TTS"].append(ttfb_value)
 
                     # Check for ASR compute latency metrics

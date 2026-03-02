@@ -6,20 +6,19 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "nvidia-pipecat",
-    "aiortc>=1.13.0",
-    "opencv-python-headless>=4.11.0.86",
-    "torch>=2.7.1",
+    "opencv-python>=4.13.0",
+    "uvicorn>=0.34.0",
+    "python-dotenv>=1.0.1",
 ]
 
 [tool.uv.sources]
 nvidia-pipecat = { path = "../..", editable = true }
-torch = { index = "pytorch" }
 
-
-[[tool.uv.index]]
-name = "pytorch"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
+[tool.uv]
+override-dependencies = [
+    "nltk>=3.9.3",
+    "protobuf==5.29.6",
+]
 
 [dependency-groups]
 dev = [

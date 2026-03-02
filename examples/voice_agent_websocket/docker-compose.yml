@@ -1,8 +1,8 @@
 name: voice-agent-websocket
 
 services:
-  riva-tts-magpie:
-    image: nvcr.io/nim/nvidia/magpie-tts-multilingual:1.4.0
+  tts-service:
+    image: nvcr.io/nim/nvidia/magpie-tts-multilingual:1.6.0
     user: "0:0"
     environment:
       - NGC_API_KEY=${NVIDIA_API_KEY}
@@ -11,8 +11,10 @@ services:
     ports:
       - "50151:50051"
     volumes:
-      - riva_cache:/opt/nim/.cache
+      - tts_cache:/opt/nim/.cache
     shm_size: 16GB
+    ulimits:
+      nofile: 2048
     healthcheck:
       test: ["CMD-SHELL", "/bin/grpc_health_probe -addr=:50051 || exit 1"]
       interval: 60s
@@ -27,8 +29,8 @@ services:
               device_ids: ['0']
               capabilities: [gpu]
 
-  riva-asr-parakeet:
-    image: nvcr.io/nim/nvidia/parakeet-1-1b-ctc-en-us:1.3.0
+  asr-service:
+    image: nvcr.io/nim/nvidia/parakeet-1-1b-ctc-en-us:1.4.0
     user: "0:0"
     environment:
       - NGC_API_KEY=${NVIDIA_API_KEY}
@@ -38,23 +40,26 @@ services:
     ports:
       - "50152:50052"
     volumes:
-      - riva_cache:/opt/nim/.cache
+      - asr_cache:/opt/nim/.cache
+    ulimits:
+      nofile: 2048
     healthcheck:
       test: ["CMD-SHELL", "/bin/grpc_health_probe -addr=:50052 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 10
-      start_period: 120s
+      start_period: 2400s # longer startup time needed if prebuilt engine is not available.
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ['1']
+              device_ids: ['0']
               capabilities: [gpu]
 
   nvidia-llm:
     image: nvcr.io/nim/meta/llama-3.1-8b-instruct:1.8.6
+    user: "0:0"
     environment:
       - NGC_API_KEY=${NVIDIA_API_KEY}
       - NIM_HTTP_API_PORT=8000
@@ -64,6 +69,8 @@ services:
     volumes:
       - llm_cache:/opt/nim/.cache
     shm_size: 16GB
+    ulimits:
+      nofile: 2048
     healthcheck:
       test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8000/v1/health/ready\").read()' || exit 1"]
       interval: 30s
@@ -75,7 +82,7 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              device_ids: ['2']
+              device_ids: ['1']
               capabilities: [gpu]
 
   python-app:
@@ -91,27 +98,30 @@ services:
       - NVIDIA_API_KEY=${NVIDIA_API_KEY}
       - ENABLE_SPECULATIVE_SPEECH=${ENABLE_SPECULATIVE_SPEECH:-false}
 
-      - RIVA_ASR_URL=riva-asr-parakeet:50052
-      - RIVA_TTS_URL=riva-tts-magpie:50051
+      - ASR_SERVER_URL=asr-service:50052
+      - TTS_SERVER_URL=tts-service:50051
       - NVIDIA_LLM_URL=http://nvidia-llm:8000/v1
 
-      - RIVA_ASR_MODEL=parakeet-1.1b-en-US-asr-streaming-silero-vad-sortformer
-      - RIVA_TTS_MODEL=magpie_tts_ensemble-Magpie-Multilingual
+      - ASR_MODEL_NAME=parakeet-1.1b-en-US-asr-streaming-silero-vad-sortformer
+      - TTS_MODEL_NAME=magpie_tts_ensemble-Magpie-Multilingual
       - NVIDIA_LLM_MODEL=meta/llama-3.1-8b-instruct
 
-      - RIVA_ASR_LANGUAGE=en-US
-      - RIVA_TTS_LANGUAGE=en-US
-      - RIVA_TTS_VOICE_ID=Magpie-Multilingual.EN-US.Aria
+      - ASR_LANGUAGE=en-US
+      - TTS_LANGUAGE=en-US
+      - TTS_VOICE_ID=Magpie-Multilingual.EN-US.Aria
+      - VAD_PROFILE=${VAD_PROFILE:-ASR} # Silero or ASR
       - ZERO_SHOT_AUDIO_PROMPT= # set this only if using a zero-shot TTS model with a custom audio prompt
+      - CHAT_HISTORY_LIMIT=${CHAT_HISTORY_LIMIT}
 
     depends_on:
-      riva-tts-magpie:
+      tts-service:
         condition: service_healthy  
-      riva-asr-parakeet:
+      asr-service:
         condition: service_healthy
       nvidia-llm:
         condition: service_healthy
 
 volumes:
-  riva_cache:
+  tts_cache:
+  asr_cache:
   llm_cache:

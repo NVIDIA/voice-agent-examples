@@ -14,11 +14,11 @@ ENV PYTHONUNBUFFERED=1
 
 # System dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
     libgl1 \
     libglx-mesa0 \
-    curl \
-    ffmpeg \
-    git \
+    libglib2.0-0 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-cache-dir --upgrade pip uv
@@ -37,7 +37,7 @@ COPY examples/voice_agent_webrtc/ ./examples/voice_agent_webrtc/
 WORKDIR /app/examples/voice_agent_webrtc
 
 # Dependencies
-RUN uv sync --frozen
+RUN uv venv && . .venv/bin/activate && uv sync --frozen
 
 # Port configuration
 EXPOSE 7860

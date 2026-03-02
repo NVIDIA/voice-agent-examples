@@ -6,7 +6,7 @@
 import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 
 from pipecat.frames.frames import DataFrame
 from pydantic import BaseModel, Field
@@ -97,7 +97,7 @@ class ImageBlock(Block):
         return "image"
 
 
-class ImagePosition(str, Enum):
+class ImagePosition(StrEnum):
     """Enum for image position."""
 
     LEFT = "left"
@@ -167,7 +167,7 @@ class HintCarouselBlock(Block):
         return "hint_carousel"
 
 
-class ButtonVariant(str, Enum):
+class ButtonVariant(StrEnum):
     """Enum for button variant styles."""
 
     OUTLINED = "outlined"

@@ -5,14 +5,17 @@ description = "NVIDIA Voice Agent example"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
- "nvidia-pipecat",
+    "nvidia-pipecat",
+    "fastapi>=0.115.7",
+    "uvicorn>=0.34.0",
+    "python-dotenv>=1.0.1",
 ]
 
 [tool.uv.sources]
-torch = { index = "pytorch" }
-nvidia-pipecat = { path = "../../.", editable = true }
+nvidia-pipecat = { path = "../..", editable = true }
 
-[[tool.uv.index]]
-name = "pytorch"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
+[tool.uv]
+override-dependencies = [
+    "nltk>=3.9.3",
+    "protobuf==5.29.6",
+]
