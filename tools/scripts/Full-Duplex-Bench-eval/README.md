@@ -13,9 +13,9 @@ This folder contains a simple inference client that streams audio to your WebSoc
 pip install numpy resampy soundfile websockets pipecat-ai
 ```
 
-2) Start the WebSocket voice agent server. For reference, you can use the example app [voice_agent_websocket](examples/voice_agent_websocket/README.md)
+2) Start the WebSocket voice agent server. For reference, you can use the example app [voice_agent_websocket](../../../examples/voice_agent_websocket/README.md).
 
-Make sure it’s reachable at the host and port you plan to use (default example runs on port 8100). The client connects to the route `/ws/benchmark`.
+   Make sure it’s reachable at the host and port you plan to use (default example runs on port 8100). The client connects to the route `/ws/benchmark`.
 
 3) Prepare your dataset directory structure (see “Dataset layout” below), and then run the client(from currenty dir Full-Duplex-Bench eval/):
 
