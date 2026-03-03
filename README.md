@@ -97,5 +97,5 @@ The project documentation includes:
 
 ## CONTRIBUTING
 
-We invite contributions! Open a GitHub issue or pull request! See contributing guildelines [here](./CONTRIBUTING.md).
+We invite contributions! Open a GitHub issue or pull request! See contributing guidelines [here](./CONTRIBUTING.md).
 

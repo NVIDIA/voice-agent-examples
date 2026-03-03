@@ -85,7 +85,7 @@ This example demonstrates an end-to-end (E2E) intelligent voice assistant using 
     ]
     ```
 
-    Add the following configuration to your [`webrtc_ui/src/config.ts`](./webrtc_ui/src/config.ts) file to use the coturn server:
+    Add the following configuration to your [`../webrtc_ui/src/config.ts`](../webrtc_ui/src/config.ts) file to use the coturn server:
 
     ```typescript
     export const RTC_CONFIG: ConstructorParameters<typeof RTCPeerConnection>[0] = {

@@ -1,6 +1,6 @@
 # Speech to Speech Demo with Websocket
 
-In this example, we showcase how to build a simple speech-to-speech voice assistant pipeline using nvidia-pipecat along with pipecat-ai library and deploy for testing. This pipeline uses a Websocket based Websocket Transport, Nemotron Speech ASR and TTS models and NVIDIA LLM Service. We recommend first following [the Pipecat documentation](https://docs.pipecat.ai/getting-started/core-concepts) to understand core concepts.
+In this example, we showcase how to build a simple speech-to-speech voice assistant pipeline using nvidia-pipecat along with pipecat-ai library and deploy for testing. This pipeline uses a Websocket based Websocket Transport, Nemotron Speech ASR and TTS models and NVIDIA LLM Service. We recommend first following [the Pipecat documentation](https://docs.pipecat.ai/getting-started/introduction) to understand core concepts.
 
 ## Prerequisites and Setup
 

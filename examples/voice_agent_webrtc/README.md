@@ -47,7 +47,7 @@ In this example, we showcase how to build a voice assistant pipeline using WebRT
 
    Set `TURN SERVER CREDENTIALS` in .env to use coturn server.
 
-   And add the following configuration to your [`webrtc_ui/src/config.ts`](./webrtc_ui/src/config.ts) file to use the coturn server:
+   And add the following configuration to your [`../webrtc_ui/src/config.ts`](../webrtc_ui/src/config.ts) file to use the coturn server:
 
    ```typescript
    export const RTC_CONFIG: ConstructorParameters<typeof RTCPeerConnection>[0] = {
