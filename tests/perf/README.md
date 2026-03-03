@@ -2,6 +2,13 @@
 
 This directory contains tools for evaluating the voice agent pipeline's latency and scalability/throughput under various loads. These tests simulate real-world scenarios where multiple users interact with the voice agent simultaneously.
 
+## Prerequisites: Provide Your Own Audio Files
+
+You must prerecord and add your own audio files before running the performance tests.
+
+- Create an `audio_files/` directory in this folder (`tests/perf/`) if it does not exist.
+- Add one or more WAV files containing spoken queries (see [Create your audio file dataset](#create-your-audio-file-dataset) below for format and recording guidelines).
+
 ## What the Tests Do
 
 The performance tests:
@@ -53,6 +60,8 @@ python bot.py > bot_logs_test1.txt 2>&1 &
 ```
 
 ### 2. Run the Multi-Client Benchmark
+
+Ensure `audio_files/` exists and contains at least one WAV file (see [Create your audio file dataset](#create-your-audio-file-dataset)).
 
 ```bash
 ./run_multi_client_benchmark.sh --host 0.0.0.0 --port 8100 --clients 10 --test-duration 150
@@ -110,13 +119,13 @@ The results help identify:
 
 If you see no results, possible reasons include:
 - Model endpoints are unreachable
-- Audio files are missing or in the wrong format
+- Audio files are in the wrong format (must be 16 kHz, mono, linear PCM int16 WAV)
 
 Check server logs for details.
 
-## Create your own audio file dataset
+## Create your audio file dataset
 
-The `audio_files/` directory contains generic example queries. If you want to run scaling scripts for your specific use case, create or update your own audio files. Keep in mind:
+You must provide your own audio files in the `audio_files/` directory; Use it for generic queries or for your specific use case. Follow these guidelines:
 
 - Record the query.
 - Trim all trailing silence from the end (e.g., using Audacity). This is critical for correct latency measurement: the scripts measure latency from the end of the audio file to the time the bot’s response is received. Ensure the end of the file coincides with the end of the spoken query. The scripts will insert/send silence between files automatically.
