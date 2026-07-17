@@ -1,3 +1,6 @@
+> [!WARNING]
+> This repository has been archived. All future development has moved to **[NVIDIA-AI-Blueprints/nemotron-voice-agent](https://github.com/NVIDIA-AI-Blueprints/nemotron-voice-agent)**. Please visit the new repository for the latest updates.
+
 # Nemotron Voice Agent Examples
 
 This repository contains examples demonstrating how to build voice-enabled conversational AI agents using the NVIDIA services, built using [the Pipecat framework](https://github.com/pipecat-ai/pipecat). These examples demonstrate various implementation patterns, ranging from simple LLM-based conversations to complex agentic workflows, and from WebSocket-based solutions to advanced WebRTC implementations with real-time capabilities.
